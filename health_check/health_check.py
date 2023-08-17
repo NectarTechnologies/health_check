@@ -1,3 +1,4 @@
+# pylint: disable=fixme
 """
 TCP server to allow for TCP health checks and additional custom checks.
 Primarily used for health checks of microservices inside containers but can be used for any health check on a server.
@@ -8,7 +9,7 @@ import socket
 import argparse
 import traceback
 
-from datetime import datetime, timezone, date, time  # pylint: disable=import-error,wrong-import-order
+from datetime import datetime, timezone, date  # pylint: disable=import-error,wrong-import-order
 from time import sleep  # pylint: disable=import-error,wrong-import-order
 from enum import Enum
 
@@ -33,7 +34,7 @@ class HealthCheckServer:  # pylint: disable=too-many-instance-attributes
     Simple TCP server to allow for TCP health checks.
     """
 
-    _VERSION = "1.3"
+    _VERSION = "1.5"
     _current_year = date.today().year
     _copyright = f"(C) {_current_year}"
     _service_name = "Health Check Service"
@@ -47,6 +48,7 @@ class HealthCheckServer:  # pylint: disable=too-many-instance-attributes
     _log_level_name_max_length = 0  # length of longest log level name
     log_level_default = LogLevel.INFO  # default log level
     options = None  # command line options
+    sock = None  # socket
 
     def __init__(self, ip_addr=None, port=None, retry_count=None):  # pylint: disable=too-many-branches
 
@@ -155,7 +157,7 @@ class HealthCheckServer:  # pylint: disable=too-many-instance-attributes
         self._log(msg="---------------------------------------------------------------", indent_level=0)
         self._log(msg="Listening for incoming connections...", indent_level=0)
 
-    def health_check_run_loop(self):  # pylint: disable=too-many-branches,too-many-statements
+    def health_check_run_loop(self):  # pylint: disable=too-many-branches,too-many-statements,too-many-locals
         """
         Process incoming health check requests.
         """
@@ -200,41 +202,70 @@ class HealthCheckServer:  # pylint: disable=too-many-instance-attributes
                             self._log(msg=f"Request: {http_method} {http_endpoint}")
 
                             http_header = b"HTTP/1.1 200 OK\r\n" \
-                                          b"Cache-Control: private, max-age=0, no-store\r\n" \
-                                          b"\r\n"
+                                          b"Cache-Control: private, max-age=0, no-store\r\n"
 
                             http_body = b''
+                            http_body_should_encode = True
                             http_response_bytes = b''
                             status_msg = ''
                             http_response_log_level = LogLevel.INFO
+                            content_type = b"Content-Type: application/json\r\n"
 
                             # Check which HTTP endpoint was requested.
                             if data.decode().startswith("GET /health"):
+
+                                # TODO: Implement custom health checks here that return a status of "HEALTHY"
+                                #       or "UNHEALTHY" along with a lot of statistics.
+
                                 status_msg = "HEALTHY"
                                 http_body = '{"status": "' + status_msg + '"}'
-                                http_response_bytes = http_header + http_body.encode()
 
                             elif data.decode().startswith("GET /ready"):
+
+                                # TODO: Implement custom check here that returns a status of "READY"
+                                #       if the service being monitored it ready to correctly perform work
+                                #       or "NOT_READY" if it is not ready to correctly perform work.
+
                                 status_msg = "READY"
                                 http_body = '{"status": "' + status_msg + '"}'
-                                http_response_bytes = http_header + http_body.encode()
 
                             elif data.decode().startswith("GET /live"):
-                                status_msg = "ALIVE"
+
+                                # TODO: Implement custom check here that returns a status of "LIVE"
+                                #       if the service being monitored has started (even if it is not yet "READY")
+                                #       or "NOT_LIVE" if the service is not detected as started.
+
+                                status_msg = "LIVE"
                                 http_body = '{"status": "' + status_msg + '"}'
-                                http_response_bytes = http_header + http_body.encode()
 
                             elif data.decode().startswith("GET /version"):
+                                # Returns the version of this health checking service.
                                 status_msg = f'{{"version": "{HealthCheckServer._VERSION}"}}'
                                 http_body = '{"status": "' + status_msg + '"}'
-                                http_response_bytes = http_header + http_body.encode()
+
+                            elif data.decode().startswith("GET /favicon.ico"):
+                                # Return the favicon.ico file.
+                                status_msg = "favicon.ico (binary file)"
+                                content_type = b"Content-Type: image/x-icon\r\n" \
+                                               b"Accept-Ranges: bytes\r\n"
+                                # Read the favicon.ico file into the http_body.
+                                with open("favicon.ico", "rb") as favicon_file:
+                                    http_body = favicon_file.read()
+                                    http_body_should_encode = False
 
                             else:
                                 status_msg = "UNKNOWN_ENDPOINT"
                                 http_body = '{"status": "' + status_msg + '"}'
-                                http_response_bytes = http_header + http_body.encode()
                                 http_response_log_level = LogLevel.ERROR
 
+                            http_header = http_header + content_type
+                            if http_body:
+                                if http_body_should_encode:
+                                    http_response_bytes = http_header + b"\r\n" + http_body.encode()
+                                else:
+                                    http_response_bytes = http_header + b"\r\n" + http_body
+                            else:
+                                http_response_bytes = http_header + b"\r\n"
                             self._log(msg=f"Response bytes: {http_response_bytes}", level=LogLevel.DEBUG)
                             self._log(msg=f"Response: {status_msg}", level=http_response_log_level)
 
