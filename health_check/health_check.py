@@ -2,6 +2,11 @@
 """
 TCP server to allow for TCP health checks and additional custom checks.
 Primarily used for health checks of microservices inside containers but can be used for any health check on a server.
+
+TODO: Implement logging to a file in addition to the stdout (default to /var/blah-blah-blah.log).
+TODO: Implement a cli flag to specify the log file name and path.
+TODO: Implement logging to a syslog server(?).
+TODO: Implement custom health checks (project specific).
 """
 
 import sys
