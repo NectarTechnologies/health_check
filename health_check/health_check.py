@@ -34,7 +34,7 @@ class HealthCheckServer:  # pylint: disable=too-many-instance-attributes
     Simple TCP server to allow for TCP health checks.
     """
 
-    _VERSION = "1.5"
+    _VERSION = "1.6"
     _current_year = date.today().year
     _copyright = f"(C) {_current_year}"
     _service_name = "Health Check Service"
@@ -201,15 +201,17 @@ class HealthCheckServer:  # pylint: disable=too-many-instance-attributes
 
                             self._log(msg=f"Request: {http_method} {http_endpoint}")
 
-                            http_header = b"HTTP/1.1 200 OK\r\n" \
-                                          b"Cache-Control: private, max-age=0, no-store\r\n"
+                            http_ver = b"HTTP/1.1"
+                            http_response_code = b"200"
+                            http_response_msg = b"OK"
+                            http_header_cache_control = b"Cache-Control: private, max-age=0, no-store\r\n"
+                            http_header_content_type = b"Content-Type: application/json\r\n"
+                            http_header_delimiter = b"\r\n"
 
                             http_body = b''
                             http_body_should_encode = True
-                            http_response_bytes = b''
                             status_msg = ''
                             http_response_log_level = LogLevel.INFO
-                            content_type = b"Content-Type: application/json\r\n"
 
                             # Check which HTTP endpoint was requested.
                             if data.decode().startswith("GET /health"):
@@ -246,8 +248,8 @@ class HealthCheckServer:  # pylint: disable=too-many-instance-attributes
                             elif data.decode().startswith("GET /favicon.ico"):
                                 # Return the favicon.ico file.
                                 status_msg = "favicon.ico (binary file)"
-                                content_type = b"Content-Type: image/x-icon\r\n" \
-                                               b"Accept-Ranges: bytes\r\n"
+                                http_header_content_type = b"Content-Type: image/x-icon\r\n" \
+                                                           b"Accept-Ranges: bytes\r\n"
                                 # Read the favicon.ico file into the http_body.
                                 with open("favicon.ico", "rb") as favicon_file:
                                     http_body = favicon_file.read()
@@ -258,14 +260,24 @@ class HealthCheckServer:  # pylint: disable=too-many-instance-attributes
                                 http_body = '{"status": "' + status_msg + '"}'
                                 http_response_log_level = LogLevel.ERROR
 
-                            http_header = http_header + content_type
+                            # Build the header and body of the HTTP response.
+                            http_header = http_ver + b' ' + http_response_code + b' ' + http_response_msg + b'\r\n' + \
+                                http_header_content_type + http_header_cache_control
+
+                            http_header_content_length = b"Content-Length: " + \
+                                                         str(len(http_body)).encode() + b"\r\n"
+
+                            http_header = http_header + http_header_content_length
+
+                            http_response_bytes = b''
                             if http_body:
                                 if http_body_should_encode:
-                                    http_response_bytes = http_header + b"\r\n" + http_body.encode()
+                                    http_response_bytes = http_header + http_header_delimiter + http_body.encode()
                                 else:
-                                    http_response_bytes = http_header + b"\r\n" + http_body
+                                    http_response_bytes = http_header + http_header_delimiter + http_body
                             else:
-                                http_response_bytes = http_header + b"\r\n"
+                                http_response_bytes = http_header + http_header_delimiter
+
                             self._log(msg=f"Response bytes: {http_response_bytes}", level=LogLevel.DEBUG)
                             self._log(msg=f"Response: {status_msg}", level=http_response_log_level)
 
