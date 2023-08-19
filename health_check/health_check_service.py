@@ -1,22 +1,25 @@
 # pylint: disable=fixme
 """
-TCP server to allow for TCP health checks and additional custom checks.
+Simple, lightweight service to allow for TCP and HTTP health checks and additional custom checks.
 Primarily used for health checks of microservices inside containers but can be used for any health check on a server.
 
 TODO: Implement logging to a file in addition to the stdout (default to /var/blah-blah-blah.log).
 TODO: Implement a cli flag to specify the log file name and path.
-TODO: Implement logging to a syslog server(?).
 TODO: Implement custom health checks (project specific).
 """
 
+import os
 import sys
 import socket
 import argparse
 import traceback
+import json
+
 
 from datetime import datetime, timezone, date  # pylint: disable=import-error,wrong-import-order
 from time import sleep  # pylint: disable=import-error,wrong-import-order
 from enum import Enum
+from health_check_types_enum import HealthCheckTypes as HC  # pylint: disable=import-error,wrong-import-order
 
 
 class LogLevel(Enum):  # pylint: disable=too-few-public-methods
@@ -34,20 +37,25 @@ class LogLevel(Enum):  # pylint: disable=too-few-public-methods
     ERROR = 4, 'ERROR'
 
 
-class HealthCheckServer:  # pylint: disable=too-many-instance-attributes
+class HealthCheckService:  # pylint: disable=too-many-instance-attributes
     """
-    Simple TCP server to allow for TCP health checks.
+    Simple service to allow for TCP and HTTP health checks.
     """
 
-    _VERSION = "1.6"
+    # Constants.
+    _VERSION = "1.22"
     _current_year = date.today().year
     _copyright = f"(C) {_current_year}"
     _service_name = "Health Check Service"
-
     shutdown_msg = f"{_service_name} shutting down."
+    http_header_delimiter = b"\r\n"
+
+    # Variables that can be passed into __init__().
     ip_addr = '0.0.0.0'
     port = 5757
-    retry_count = 5  # number of times to retry starting the server
+    retry_count = 5  # number of times to retry starting the service
+
+    # Internal variables.
     retry_wait_time = 3  # seconds
     current_try_count = 0  # current try count
     _log_level_name_max_length = 0  # length of longest log level name
@@ -56,24 +64,27 @@ class HealthCheckServer:  # pylint: disable=too-many-instance-attributes
     sock = None  # socket
 
     def __init__(self, ip_addr=None, port=None, retry_count=None):  # pylint: disable=too-many-branches
+        """
+        Constructor.
+
+        :param ip_addr: (str) The IP address to bind to. Default is 0.0.0.0 (all IP addresses).
+
+        :param port: (int) The TCP port to listen on. Default is 5757.
+
+        :param retry_count: (int) The number of times to retry starting the service. Default is 5.
+        """
 
         super().__init__()
 
         self._log_level_name_max_length = self.find_len_of_longest_log_level_name()
 
-        if ip_addr is None:
-            self.ip_addr = HealthCheckServer.ip_addr
-        else:
+        if ip_addr is not None:
             self.ip_addr = ip_addr
 
-        if port is None:
-            self.port = HealthCheckServer.port
-        else:
+        if port is not None:
             self.port = port
 
-        if retry_count is None:
-            self.retry_count = HealthCheckServer.retry_count
-        else:
+        if retry_count is not None:
             self.retry_count = retry_count
 
         parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
@@ -119,12 +130,6 @@ class HealthCheckServer:  # pylint: disable=too-many-instance-attributes
         """
         return max(len(level.value[1]) for level in LogLevel)
 
-        # max_length = 0
-        # for level in LogLevel:
-        #     if len(level.value) > max_length:
-        #         max_length = len(level.value)
-        # return max_length
-
     def _log(self, msg="", level=LogLevel.INFO, indent_level=1):
         """
         Prints a log message if logging is enabled.
@@ -157,14 +162,14 @@ class HealthCheckServer:  # pylint: disable=too-many-instance-attributes
 
     def show_listening_message(self):
         """
-        Shows a message that the server is listening for incoming connections.
+        Shows a message that the service is listening for incoming connections.
         """
         self._log(msg="---------------------------------------------------------------", indent_level=0)
         self._log(msg="Listening for incoming connections...", indent_level=0)
 
-    def health_check_run_loop(self):  # pylint: disable=too-many-branches,too-many-statements,too-many-locals
+    def health_check_service_run_loop(self):  # pylint: disable=too-many-branches,too-many-statements,too-many-locals
         """
-        Process incoming health check requests.
+        Run loop for the health check service. Process incoming health check requests.
         """
         connection = None
         self.show_listening_message()
@@ -209,82 +214,131 @@ class HealthCheckServer:  # pylint: disable=too-many-instance-attributes
                             http_ver = b"HTTP/1.1"
                             http_response_code = b"200"
                             http_response_msg = b"OK"
-                            http_header_cache_control = b"Cache-Control: private, max-age=0, no-store\r\n"
+                            http_header_cache_control = b"Cache-Control: private, max-age=0, no-store, no-cache\r\n" \
+                                                        b"Pragma: no-cache\r\n"
                             http_header_content_type = b"Content-Type: application/json\r\n"
-                            http_header_delimiter = b"\r\n"
 
-                            http_body = b''
-                            http_body_should_encode = True
+                            http_body = {
+                                "status": "",
+                                "health_check_type": ""
+                            }
+
+                            http_body_is_binary_file = False
                             status_msg = ''
                             http_response_log_level = LogLevel.INFO
 
                             # Check which HTTP endpoint was requested.
-                            if data.decode().startswith("GET /health"):
+                            if data.decode().startswith(f"GET {HC.HTTP_HEALTH.value[HC.ENDPOINT.value]}"):
 
-                                # TODO: Implement custom health checks here that return a status of "HEALTHY"
-                                #       or "UNHEALTHY" along with a lot of statistics.
+                                # TODO: Implement custom check here that returns a status of "HEALTHY"
+                                #       if the service being monitored is "LIVE", "READY", and is healthy.
+                                #       or "NOT_HEALTHY" if the service is not "LIVE", "READY", or not healthy.
 
-                                status_msg = "HEALTHY"
-                                http_body = '{"status": "' + status_msg + '"}'
+                                http_body["status"] = HC.HTTP_HEALTH.value[HC.STATUS_SUCCESS.value]
+                                http_body["health_check_type"] = f"{HC.HTTP_HEALTH.value[HC.NAME.value]}"
+                                http_body["system_load"] = f"{os.getloadavg()[0]}, {os.getloadavg()[1]}, " \
+                                                           f"{os.getloadavg()[0]}"
+                                http_body["cpu_count"] = f"{os.cpu_count()}"
 
-                            elif data.decode().startswith("GET /ready"):
+                                # TODO: Include additional stats:
+                                #       - Memory usage
+                                #       - Disk usage
+                                #       - CPU usage
+                                #       - Average response time
+                                #       - Number of requests
+                                #       - Number of errors
+                                #       - Number of timeouts
+                                #       - Number of retries
+                                #       - Number of failures
+                                #       - Number of successes
+                                #       - Number of connections
+                                #       - Number of open files
+                                #       - Number of threads
+                                #       - Number of processes
+                                #       - Number of sockets
+                                #       - Number of connections
+                                #       - etc.
 
-                                # TODO: Implement custom check here that returns a status of "READY"
-                                #       if the service being monitored it ready to correctly perform work
-                                #       or "NOT_READY" if it is not ready to correctly perform work.
-
-                                status_msg = "READY"
-                                http_body = '{"status": "' + status_msg + '"}'
-
-                            elif data.decode().startswith("GET /live"):
+                            elif data.decode().startswith(f"GET {HC.HTTP_LIVE.value[HC.ENDPOINT.value]}"):
 
                                 # TODO: Implement custom check here that returns a status of "LIVE"
                                 #       if the service being monitored has started (even if it is not yet "READY")
                                 #       or "NOT_LIVE" if the service is not detected as started.
 
-                                status_msg = "LIVE"
-                                http_body = '{"status": "' + status_msg + '"}'
+                                http_body["status"] = HC.HTTP_LIVE.value[HC.STATUS_SUCCESS.value]
+                                http_body["health_check_type"] = HC.HTTP_LIVE.value[HC.NAME.value]
 
-                            elif data.decode().startswith("GET /version"):
+                            elif data.decode().startswith(f"GET {HC.HTTP_READY.value[HC.ENDPOINT.value]}"):
+
+                                # TODO: Implement custom check here that returns a status of "READY"
+                                #       if the service being monitored is "LIVE" and is ready to accept requests
+                                #       or "NOT_READY" if the service is not "LIVE" or not ready to accept requests.
+
+                                http_body["status"] = HC.HTTP_READY.value[HC.STATUS_SUCCESS.value]
+                                http_body["health_check_type"] = HC.HTTP_READY.value[HC.NAME.value]
+
+                            elif data.decode().startswith(f"GET {HC.VERSION.value[HC.ENDPOINT.value]}"):
                                 # Returns the version of this health checking service.
-                                status_msg = f'{{"version": "{HealthCheckServer._VERSION}"}}'
-                                http_body = '{"status": "' + status_msg + '"}'
+                                http_body["status"] = HC.VERSION.value[HC.STATUS_SUCCESS.value]
+                                http_body["health_check_type"] = HC.VERSION.value[HC.NAME.value]
 
-                            elif data.decode().startswith("GET /favicon.ico"):
-                                # Return the favicon.ico file.
-                                status_msg = "favicon.ico (binary file)"
+                            elif data.decode().startswith(f"GET {HC.FAVICON.value[HC.ENDPOINT.value]}"):
+                                # Returns the favicon.ico binary file.
+                                status_msg = "(binary file)"
                                 http_header_content_type = b"Content-Type: image/x-icon\r\n" \
                                                            b"Accept-Ranges: bytes\r\n"
                                 # Read the favicon.ico file into the http_body.
                                 with open("favicon.ico", "rb") as favicon_file:
                                     http_body = favicon_file.read()
-                                    http_body_should_encode = False
+                                    http_body_is_binary_file = True
 
                             else:
-                                status_msg = "UNKNOWN_ENDPOINT"
-                                http_body = '{"status": "' + status_msg + '"}'
+                                http_body["status"] = HC.UNKNOWN.value[HC.STATUS_SUCCESS.value]
+                                http_body["health_check_type"] = HC.UNKNOWN.value[HC.NAME.value]
                                 http_response_log_level = LogLevel.ERROR
 
                             # Build the header and body of the HTTP response.
                             http_header = http_ver + b' ' + http_response_code + b' ' + http_response_msg + b'\r\n' + \
                                 http_header_content_type + http_header_cache_control
 
-                            http_header_content_length = b"Content-Length: " + \
-                                                         str(len(http_body)).encode() + b"\r\n"
-
-                            http_header = http_header + http_header_content_length
-
                             http_response_bytes = b''
+
+                            http_body_json = None
+
                             if http_body:
-                                if http_body_should_encode:
-                                    http_response_bytes = http_header + http_header_delimiter + http_body.encode()
+                                if http_body_is_binary_file:
+                                    # Add the length of the binary file to the HTTP header.
+                                    http_header_content_length = b"Content-Length: " + \
+                                                                 str(len(http_body)).encode() + b"\r\n"
+                                    http_header = http_header + http_header_content_length
+
+                                    # Build the full packet (header + body).
+                                    http_response_bytes = (http_header + self.http_header_delimiter +
+                                                           str(http_body).encode())
+
+                                    self._log(msg=f"Response: {status_msg}", level=http_response_log_level)
                                 else:
-                                    http_response_bytes = http_header + http_header_delimiter + http_body
+                                    # Convert the dict to JSON.
+                                    http_body_json = json.dumps(http_body, indent=4)
+
+                                    # Add the length of the JSON string to the HTTP header.
+                                    http_header_content_length = (b"Content-Length: " +
+                                                                  str(len(http_body_json)).encode() + b"\r\n")
+                                    http_header = http_header + http_header_content_length
+
+                                    # Encode the JSON string to bytes.
+                                    http_body_json_encoded = http_body_json.encode()
+
+                                    # Build the full packet (header + body).
+                                    http_response_bytes = (http_header + self.http_header_delimiter +
+                                                           http_body_json_encoded)
+
+                                    self._log(msg=f"Response: \n{http_body_json}", level=http_response_log_level)
                             else:
-                                http_response_bytes = http_header + http_header_delimiter
+                                http_response_bytes = http_header + self.http_header_delimiter
+                                self._log(msg="Response: None", level=http_response_log_level)
 
                             self._log(msg=f"Response bytes: {http_response_bytes}", level=LogLevel.DEBUG)
-                            self._log(msg=f"Response: {status_msg}", level=http_response_log_level)
 
                             connection.sendall(http_response_bytes)
 
@@ -305,12 +359,12 @@ class HealthCheckServer:  # pylint: disable=too-many-instance-attributes
 
     def start(self):  # pylint: disable=too-many-branches,too-many-statements
         """
-        Starts the server.  Will retry up to retry_count times.
+        Starts the service.  Will retry up to retry_count times.
         :return:
         """
         self._log(msg="==========================================================================", indent_level=0)
-        self._log(msg=f" {HealthCheckServer._service_name} v{HealthCheckServer._VERSION}", indent_level=0)
-        self._log(msg=f" {HealthCheckServer._copyright}", indent_level=0)
+        self._log(msg=f" {self._service_name} v{self._VERSION}", indent_level=0)
+        self._log(msg=f" {self._copyright}", indent_level=0)
         self._log(msg="==========================================================================", indent_level=0)
         self._log(msg=f"Service listening on: "
                       f"{self.ip_addr}:{self.port} (TCP)", indent_level=0)
@@ -324,12 +378,12 @@ class HealthCheckServer:  # pylint: disable=too-many-instance-attributes
                 self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 self.sock.bind((self.ip_addr, self.port))
                 self.sock.listen(1)
-                self.health_check_run_loop()
+                self.health_check_service_run_loop()
                 break
 
             except socket.error:
-                self._log(msg=f"Unable to start {HealthCheckServer._service_name}, retrying in 5s. "
-                              f"Encountered socket error:\n{traceback.format_exc()}",
+                self._log(msg=f"Unable to start {self._service_name}, retrying in "
+                              f"{self.retry_wait_time}s. Encountered socket error:\n{traceback.format_exc()}",
                           level=LogLevel.ERROR, indent_level=0)
                 try:
                     sleep(self.retry_wait_time)
@@ -351,13 +405,12 @@ class HealthCheckServer:  # pylint: disable=too-many-instance-attributes
                 self.sock.close()
 
         if self.current_try_count > self.retry_count:
-            self._log(msg=f"Unable to start {HealthCheckServer._service_name} on "
+            self._log(msg=f"Unable to start {self._service_name} on "
                           f"{self.ip_addr} port {self.port}",
                       level=LogLevel.ERROR, indent_level=0)
             return
 
 
 if __name__ == '__main__':
-    # For now, if executed as main, simply run default server with just logging enabled
-    server = HealthCheckServer()
-    server.start()
+    service = HealthCheckService()
+    service.start()
