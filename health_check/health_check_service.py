@@ -3,6 +3,9 @@
 Simple, lightweight service to allow for TCP and HTTP health checks and additional custom checks.
 Primarily used for health checks of microservices inside containers but can be used for any health check on a server.
 
+TODO: Implement a cli flag to specify a config file that contains the IP address, TCP port, and retry count.
+TODO: Implement config file that specifies the external scripts to run for "live", "ready", and "health" checks.
+TODO: Once the config file is implemented, update the "live", "ready", and "health" checks to use the config file.
 TODO: Implement logging to a file in addition to the stdout (default to /var/blah-blah-blah.log).
 TODO: Implement a cli flag to specify the log file name and path.
 TODO: Implement custom health checks (project specific).
@@ -45,7 +48,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
     """
 
     # Constants.
-    _VERSION = "1.24"
+    _VERSION = "1.25"
     _current_year = date.today().year
     _copyright = f"(C) {_current_year}"
     _service_name = "Health Check Service"
