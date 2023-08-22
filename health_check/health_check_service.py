@@ -48,7 +48,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
     """
 
     # Constants.
-    _VERSION = "1.25"
+    _VERSION = "1.26"
     _current_year = date.today().year
     _copyright = f"(C) {_current_year}"
     _service_name = "Health Check Service"
@@ -418,8 +418,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
                                     http_header = http_header + http_header_content_length
 
                                     # Build the full packet (header + body).
-                                    http_response_bytes = (http_header + self.http_header_delimiter +
-                                                           str(http_body).encode())
+                                    http_response_bytes = (http_header + self.http_header_delimiter + http_body)
 
                                     self._log(msg=f"Response: {status_msg}", level=http_response_log_level)
                                 else:

@@ -248,7 +248,7 @@ class HealthCheckFavicon(HealthCheckTypes):
         if self.read_binary_data():
             self._msg = "(binary file)"
         else:
-            self._msg = f'File "{self.file_path}" not found)'
+            self._msg = f'File {self.file_path} not found)'
 
     def get_binary_data(self):
         """
