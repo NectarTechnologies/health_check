@@ -16,7 +16,10 @@ import json
 from datetime import datetime, timezone, date  # pylint: disable=import-error,wrong-import-order
 from time import sleep  # pylint: disable=import-error,wrong-import-order
 from enum import Enum
-from health_check_types_enum import HealthCheckTypes as HC  # pylint: disable=import-error,wrong-import-order
+from health_check_types import (HealthCheckVersion, HealthCheckTcp,  # pylint: disable=import-error,wrong-import-order
+                                HealthCheckLive, HealthCheckReady, HealthCheckHealth, HealthCheckFavicon)
+from health_check_types import HealthCheckTypes as HC  # pylint: disable=import-error,wrong-import-order
+from health_check_types_enum import HealthCheckTypesEnum as HCEnum  # pylint: disable=import-error,wrong-import-order
 
 
 class LogLevel(Enum):  # pylint: disable=too-few-public-methods
@@ -40,7 +43,7 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
     """
 
     # Constants.
-    _VERSION = "1.2"
+    _VERSION = "1.17"
     _current_year = date.today().year
     _copyright = f"(C) {_current_year}"
     _service_name = "Health Check Client"
@@ -55,6 +58,8 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
     check_http_live = False  # If True, then check that the HTTP endpoint "/live" returns "LIVE".
     check_http_ready = False  # If True, then check that the HTTP endpoint "/ready" returns "READY".
     check_http_health = False  # If True, then check that the HTTP endpoint "/health" returns "HEALTHY".
+    check_server_version = False  # If True, then check the version returned the HTTP endpoint "/version".
+    check_favicon = False  # If True, then check if the favicon is returned by the HTTP endpoint "/favicon.ico".
 
     # Internal variables.
     server_ip_addr = None
@@ -65,7 +70,7 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
     log_level_default = LogLevel.INFO  # default log level
     options = None  # command line options
     sock = None  # socket
-    _current_health_check_type = HC.TCP  # Default to TCP health check.
+    _current_health_check_type = HCEnum.TCP  # Default to TCP health check.
 
     retryable_errors = (
         socket.error,
@@ -79,7 +84,9 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
                  check_tcp=None,
                  check_http_live=None,
                  check_http_ready=None,
-                 check_http_health=None):
+                 check_http_health=None,
+                 check_favicon=None,
+                 check_server_version=None):
         """
         Constructor.
 
@@ -117,6 +124,12 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
                     {"status": "HEALTHY"}
                 Example of "UNHEALTHY" response:
                     {"status": "UNHEALTHY"}
+
+        :param check_favicon: (bool) If True, then check if the favicon.ico is returned by the server.
+            Default is False.
+
+        :param check_server_version: (bool) If True, then check the version returned the HTTP endpoint "/version".
+            Default is False.
         """
 
         super().__init__()
@@ -129,6 +142,14 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
         parser.add_argument('-v', '--version', dest='show_version', action="store_true",
                             default=False,
                             help='Show version.\n')
+
+        parser.add_argument('-z', '--server_version', dest='show_server_version', action="store_true",
+                            default=False,
+                            help='Show server version.\n')
+
+        parser.add_argument('-f', '--check_if_favicon_exists', dest='check_favicon', action="store_true",
+                            default=False,
+                            help='Check if the favicon.ico is returned by the server.\n')
 
         parser.add_argument('-l', '--log-level', dest='log_level', action="append",
                             help="Logging level. Values: DEBUG, INFO, WARNING, ERROR. Default: INFO.\n")
@@ -226,8 +247,25 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
             if check_http_health is not None:
                 self.check_http_health = check_http_health
 
+        if self.options.check_favicon is not None:
+            self.check_favicon = self.options.check_favicon
+        else:
+            if check_favicon is not None:
+                self.check_favicon = check_favicon
+
+        if self.options.show_server_version:
+            self.check_server_version = True
+        else:
+            if check_server_version is not None:
+                self.check_server_version = check_server_version
+
         # If all health check types are False, then default to TCP health check.
-        if not self.check_tcp and not self.check_http_live and not self.check_http_ready and not self.check_http_health:
+        if not self.check_tcp and \
+            not self.check_http_live and \
+            not self.check_http_ready and \
+            not self.check_http_health and \
+            not self.check_server_version and \
+            not self.check_favicon:
             self.check_tcp = True
 
     @staticmethod
@@ -283,11 +321,11 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
         """
         Shows a message that the client is connecting to a server.
         """
-        if self._current_health_check_type not in HC:
-            raise RuntimeError(f"Invalid check_type: {self._current_health_check_type.value[2]}")
+        if self._current_health_check_type not in HCEnum:
+            raise RuntimeError(f"Invalid check_type: {self._current_health_check_type.name}")
 
         self._log(msg=f"Connecting to: {self.remote_server[0]}:{self.remote_server[1]} "
-                      f"(Health Check Type: {self._current_health_check_type.value[2]})",
+                      f"(Health Check Type: {self._current_health_check_type.name})",
                   level=LogLevel.DEBUG)
 
     @staticmethod
@@ -309,10 +347,7 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
         """
         self.show_connecting_message()
 
-        response_msg = {
-            "status": "",
-            "health_check_type": ""
-        }
+        response_msg = {}
 
         http_header_request_method = b'GET '
         http_header_request_endpoint = b''
@@ -330,32 +365,52 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
         self.sock.connect(self.remote_server)
 
         # Check which health check type was requested.
+        hc_type = None
         try:
             if self.check_tcp:
-                response_msg["status"] = "UP"
-                response_msg["health_check_type"] = f"{HC.TCP.value[1]}"
+                hc_type = HealthCheckTcp()
+                response_msg["status"] = hc_type.status_success()
+                response_msg["health_check_type"] = hc_type.name()
                 response_msg_json = json.dumps(response_msg, indent=4)
                 self._log(msg=response_msg_json, level=LogLevel.INFO)
                 return
 
             if self.check_http_live:
-                response_msg["health_check_type"] = f"{HC.HTTP_LIVE.value[2]}"
-                http_header_request_endpoint = http_header_request_endpoint + f"{HC.HTTP_LIVE.value[1]}".encode()
+                hc_type = HealthCheckLive()
+                response_msg["health_check_type"] = hc_type.name()
+                http_header_request_endpoint = f"{hc_type.endpoint()}".encode()
 
             elif self.check_http_ready:
-                response_msg["health_check_type"] = f"{HC.HTTP_READY.value[2]}"
-                http_header_request_endpoint = http_header_request_endpoint + f"{HC.HTTP_READY.value[1]}".encode()
+                hc_type = HealthCheckReady()
+                response_msg["health_check_type"] = hc_type.name()
+                http_header_request_endpoint = f"{hc_type.endpoint()}".encode()
 
             elif self.check_http_health:
-                response_msg["health_check_type"] = f"{HC.HTTP_HEALTH.value[2]}"
-                http_header_request_endpoint = http_header_request_endpoint + f"{HC.HTTP_HEALTH.value[1]}".encode()
+                hc_type = HealthCheckHealth()
+                response_msg["health_check_type"] = hc_type.name()
+                http_header_request_endpoint = f"{hc_type.endpoint()}".encode()
+
+            elif self.check_server_version:
+                hc_type = HealthCheckVersion()
+                response_msg["health_check_type"] = hc_type.name()
+                http_header_request_endpoint = f"{hc_type.endpoint()}".encode()
+
+            elif self.check_favicon:
+                hc_type = HealthCheckFavicon()
+                response_msg["status"] = f'"{hc_type.get_favicon_endpoint()}" exists.'
+                response_msg["health_check_type"] = hc_type.name()
+                http_header_request_endpoint = f"{hc_type.endpoint()}".encode()
 
             # Build HTTP request header.
-            http_header = http_header_request_method + http_header_request_endpoint + http_header_request_version + \
-                http_header_cache_control + http_header_accept_encoding + http_header_request_host + \
+            http_header = \
+                http_header_request_method + http_header_request_endpoint + http_header_request_version + \
+                http_header_cache_control + \
+                http_header_accept_encoding + \
+                http_header_request_host + \
                 self.http_header_delimiter
 
             try:
+                self._log(msg=f"Bytes Sent: {http_header}", level=LogLevel.DEBUG)
                 # Send HTTP request header.
                 self.sock.sendall(http_header)
             except socket.error as sock_exc:
@@ -369,7 +424,7 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
             # Expecting to receive JSON response.
             http_response_raw = self.sock.recv(16384)
 
-            # Check if we received any data.
+            # If we do not receive any data.
             if not http_response_raw:
                 response_msg["status"] = "DOWN"
                 response_msg["msg"] = "No data received."
@@ -377,7 +432,7 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
                 self._log(msg=response_msg_json, level=LogLevel.ERROR)
                 return
 
-            self._log(msg=f"Received bytes: {http_response_raw}", level=LogLevel.DEBUG)
+            self._log(msg=f"Bytes Received: {http_response_raw}", level=LogLevel.DEBUG)
 
             # Separate the HTTP header and HTTP body.
             http_response_header, http_response_body = http_response_raw.split(sep=b"\r\n\r\n", maxsplit=1)
@@ -385,10 +440,19 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
             # Convert the HTTP header to a string.
             http_response_header = http_response_header.decode()
 
-            # Convert the HTTP body to a string.
-            http_response_body = http_response_body.decode()
+            if self.check_favicon:
+                # Check if the favicon.ico file was returned.
+                if "Content-Type: image/x-icon" in http_response_header:
+                    response_msg["status"] = hc_type.status_success()
+                else:
+                    response_msg["status"] = hc_type.status_failure()
+                response_msg_json = json.dumps(response_msg, indent=4)
+                self._log(msg=response_msg_json, level=LogLevel.INFO)
 
-            self._log(msg=f"{http_response_body}", level=LogLevel.INFO)
+            else:
+                # Convert the HTTP body to a string.
+                http_response_body = http_response_body.decode()
+                self._log(msg=f"{http_response_body}", level=LogLevel.INFO)
 
         except KeyboardInterrupt:
             self._log(msg=f"{self.shutdown_msg} (KeyboardInterrupt).", level=LogLevel.WARNING)

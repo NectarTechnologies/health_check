@@ -9,7 +9,7 @@ Used by health_check_client.py
 from enum import Enum
 
 
-class HealthCheckTypes(Enum):  # pylint: disable=too-few-public-methods
+class HealthCheckTypesEnum(Enum):  # pylint: disable=too-few-public-methods
     """
     Health check types.
     Parameter 1: (int) The health check type ID.
@@ -23,11 +23,11 @@ class HealthCheckTypes(Enum):  # pylint: disable=too-few-public-methods
     HTTP_LIVE = 2, '/live', 'LIVE', 'LIVE', 'NOT_LIVE'
     HTTP_READY = 3, '/ready', 'READY', 'READY', 'NOT_READY'
     HTTP_HEALTH = 4, '/health', 'HEALTH', 'HEALTHY', 'NOT_HEALTHY'
-    VERSION = 5, '/version', 'VERSION', 'VERSION', 'VERSION'
-    FAVICON = 6, '/favicon.ico', 'FAVICON', 'FAVICON', 'FAVICON'
+    VERSION = 5, '/version', 'VERSION', 'SUCCESS', 'FAILED'
+    FAVICON = 6, '/favicon.ico', 'FAVICON', 'FAVICON_FOUND', 'FAVICON_NOT_FOUND'
     UNKNOWN = 7, 'NONE', 'UNKNOWN', 'NO_STATUS', 'NO_STATUS'
 
-    # Constants to use as indices into the HealthCheckTypes tuple.
+    # Constants to use as indices into the HealthCheckTypesEnum tuple.
     TYPE_ID = 0
     ENDPOINT = 1
     NAME = 2

@@ -15,11 +15,13 @@ import argparse
 import traceback
 import json
 
-
 from datetime import datetime, timezone, date  # pylint: disable=import-error,wrong-import-order
 from time import sleep  # pylint: disable=import-error,wrong-import-order
 from enum import Enum
-from health_check_types_enum import HealthCheckTypes as HC  # pylint: disable=import-error,wrong-import-order
+from health_check_types import (HealthCheckVersion, HealthCheckTcp,  # pylint: disable=import-error,wrong-import-order
+                                HealthCheckLive, HealthCheckReady, HealthCheckHealth, HealthCheckFavicon,
+                                HealthCheckUnknown)
+from health_check_types import HealthCheckTypes as HC  # pylint: disable=import-error,wrong-import-order
 
 
 class LogLevel(Enum):  # pylint: disable=too-few-public-methods
@@ -43,7 +45,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
     """
 
     # Constants.
-    _VERSION = "1.22"
+    _VERSION = "1.24"
     _current_year = date.today().year
     _copyright = f"(C) {_current_year}"
     _service_name = "Health Check Service"
@@ -89,6 +91,9 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
 
         parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
 
+        parser.add_argument('-v', '--version', dest='show_version', action="store_true",
+                            default=False, help='Show version.\n')
+
         parser.add_argument('-l', '--log-level', dest='log_level', action="append",
                             help="Logging level. Values: DEBUG, INFO, WARNING, ERROR. Default: INFO.\n")
 
@@ -122,6 +127,10 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
         if self.options.port is not None:
             self.port = int(self.options.port[0])
 
+        if self.options.show_version:
+            self.show_banner()
+            sys.exit(0)
+
     @staticmethod
     def find_len_of_longest_log_level_name():
         """
@@ -130,7 +139,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
         """
         return max(len(level.value[1]) for level in LogLevel)
 
-    def _log(self, msg="", level=LogLevel.INFO, indent_level=1):
+    def _log(self, msg="", level=LogLevel.INFO, indent_level=1, show_prefix=True):
         """
         Prints a log message if logging is enabled.
         Adds a date and time stamp (including timezone) to the beginning of each log line that is in the ISO8601
@@ -142,6 +151,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
         :param level: (str) The log level.  Default is "info".
         :param indent_level: (int) The number of indents to add to the beginning portion of the log message.
             Default is 1. Each indent level is 4 spaces.
+        :param show_prefix: (bool) If True, then show the date-time stamp and log level prefix. Default is True.
         """
         if indent_level > 0:
             indent = "    " * indent_level
@@ -151,13 +161,16 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
             level = LogLevel.INFO
 
         if level is not None and level.value[0] >= self.log_level_default.value[0]:
-            # Generate an ISO 8601 conformant date-time stamp for the current time which also includes the timezone.
-            datetime_iso8601 = datetime.now(timezone.utc).astimezone().isoformat()
-            # Remove colons from the time stamp to make it compatible with Windows when used in a file name.
-            datetime_iso8601.replace(':', '')
-            # Add logging level into a fixed with string with the max length of the longest log level name.
-            _log_level = f"[{level.value[1]}]"
-            msg = f"{datetime_iso8601} {_log_level:<{self._log_level_name_max_length+2}}: {msg}"
+            if show_prefix:
+                # Generate an ISO 8601 conformant date-time stamp for the current time which also includes the timezone.
+                datetime_iso8601 = datetime.now(timezone.utc).astimezone().isoformat()
+                # Remove colons from the time stamp to make it compatible with Windows when used in a file name.
+                datetime_iso8601.replace(':', '')
+                # Add logging level into a fixed with string with the max length of the longest log level name.
+                _log_level = f"[{level.value[1]}]"
+                msg = f"{datetime_iso8601} {_log_level:<{self._log_level_name_max_length+2}}: {msg}"
+            else:
+                msg = f"{msg}"
             print(msg)
 
     def show_listening_message(self):
@@ -166,6 +179,131 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
         """
         self._log(msg="---------------------------------------------------------------", indent_level=0)
         self._log(msg="Listening for incoming connections...", indent_level=0)
+
+    @staticmethod
+    def do_version_check():
+        """
+        Performs a version check.
+        :return: The version object of the health check service.
+        """
+        hc_version = HealthCheckVersion()
+        hc_version.set_status(hc_version.status_success())
+        hc_version.set_msg(f"{__class__.__name__} v{HealthCheckService._VERSION}")
+        return hc_version
+
+    @staticmethod
+    def do_tcp_check():
+        """
+        Performs a TCP check. Returns a status of "UP" if the TCP port is open or "DOWN" if the TCP port is closed.
+
+        :return: (HealthCheckTcp) The TCP check object.
+        """
+        hc_tcp = HealthCheckTcp()
+        hc_tcp.set_status(hc_tcp.status_success())
+        return hc_tcp
+
+    @staticmethod
+    def do_live_check():
+        """
+        Performs a live check. Returns a status of "LIVE" if the service being monitored has started
+        (even if it is not yet "READY") or "NOT_LIVE" if the service is not detected as started.
+
+        :return: (HealthCheckLive) The live check object.
+        """
+        hc_live = HealthCheckLive()
+
+        # TODO: Implement custom "live" check(s) here.
+
+        # TODO: Implement if / else.
+        # If "alive"
+        hc_live.set_status(hc_live.status_success())
+        # Else
+        # hc_live.set_status(hc_live.status_failure())
+
+        return hc_live
+
+    @staticmethod
+    def do_ready_check():
+        """
+        Performs a live check. Returns a status of "READY" if the service being monitored is "LIVE" and
+        is ready to accept requests or "NOT_READY" if the service is not "LIVE" or not ready to accept requests.
+
+        :return: (HealthCheckReady) The ready check object.
+        """
+        hc_ready = HealthCheckReady()
+
+        # First do a "live" check.
+        hc_live = HealthCheckService.do_live_check()
+
+        if hc_live.is_live():
+
+            # TODO: Implement custom "ready" check(s) here.
+
+            # TODO: Implement if / else.
+            # If "ready"
+            hc_ready.set_status(hc_ready.status_success())
+            # Else
+            # hc_ready.set_status(hc_ready.status_failure())
+
+        else:
+            # Do need to do any additional checks if the service is not "LIVE".
+            hc_ready.set_status(hc_ready.status_failure())
+            hc_ready.set_msg(f'Received a {hc_live.get_status()} status from the {hc_live.name()} check.')
+
+        return hc_ready
+
+    @staticmethod
+    def do_health_check():
+        """
+        Performs a health check. Returns a status of "HEALTHY" if the service being monitored is "LIVE", "READY", and
+        is healthy or "NOT_HEALTHY" if the service is not "LIVE", not "READY", or not healthy.
+
+        :return: (HealthCheckHealth) The health check object.
+        """
+        hc_health = HealthCheckHealth()
+
+        # First do a "ready" check (which in turn will also do a "live" check).
+        hc_ready = HealthCheckService.do_ready_check()
+
+        if hc_ready.is_ready():
+            # Examples of some basic stats:
+            hc_health.stats["system_load"] = f"{os.getloadavg()[0]}, {os.getloadavg()[1]}, {os.getloadavg()[0]}"
+            hc_health.stats["cpu_count"] = f"{os.cpu_count()}"
+
+            # TODO: Ideas of possible additional stats to include:
+            #       - Memory usage
+            #       - Disk usage
+            #       - CPU usage
+            #       - Average response time
+            #       - Number of requests
+            #       - Number of errors
+            #       - Number of timeouts
+            #       - Number of retries
+            #       - Number of failures
+            #       - Number of successes
+            #       - Number of connections
+            #       - Number of open files
+            #       - Number of threads
+            #       - Number of processes
+            #       - Number of sockets
+            #       - Number of connections
+            #       - etc.
+
+            # TODO: Implement custom "ready" check(s) here.
+
+            # If healthy
+            hc_health.set_status(hc_health.status_success())
+
+            # If not healthy
+            # hc_health.set_status(hc_health.status_failure())
+
+        else:
+            # Do need to do any additional checks if the service is not "LIVE".
+            hc_health.set_status(hc_health.status_failure())
+            hc_health.set_msg(f'Received a {hc_ready.get_status()} status from the {hc_ready.name()} check ' \
+                              f'with message: [{hc_ready.get_status_dict()["msg"]}]')
+
+        return hc_health
 
     def health_check_service_run_loop(self):  # pylint: disable=too-many-branches,too-many-statements,too-many-locals
         """
@@ -193,7 +331,11 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
 
                 self._log(msg=f"Client connected: (IP: {client_address[0]}, TCP port: {client_address[1]})")
 
-                if data:
+                if data is None or data == b'':
+                    # Handle the request as a TCP only with no payload.
+                    self._log(msg=f'Status: "{self.do_tcp_check().get_status_dict()["status"]}"',
+                              level=LogLevel.INFO)
+                else:
                     # How many data bytes do we have?
                     if len(data) < 4:
                         self._log(msg=f"Request: {data}")
@@ -202,6 +344,8 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
                     # Else there is enough data to contain at least the HTTP request method "GET ".
                     else:
                         self._log(msg=f"Request bytes: {data}", level=LogLevel.DEBUG)
+
+                        status_msg = ''
 
                         # If data starts with "GET ", then it is an HTTP request.
                         if data.decode().startswith("GET "):
@@ -218,83 +362,41 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
                                                         b"Pragma: no-cache\r\n"
                             http_header_content_type = b"Content-Type: application/json\r\n"
 
-                            http_body = {
-                                "status": "",
-                                "health_check_type": ""
-                            }
+                            http_body = {}
 
                             http_body_is_binary_file = False
                             status_msg = ''
                             http_response_log_level = LogLevel.INFO
 
                             # Check which HTTP endpoint was requested.
-                            if data.decode().startswith(f"GET {HC.HTTP_HEALTH.value[HC.ENDPOINT.value]}"):
+                            if data.decode().startswith(f"GET {HC.get_health_endpoint()}"):
+                                http_body = self.do_health_check().get_status_dict()
 
-                                # TODO: Implement custom check here that returns a status of "HEALTHY"
-                                #       if the service being monitored is "LIVE", "READY", and is healthy.
-                                #       or "NOT_HEALTHY" if the service is not "LIVE", "READY", or not healthy.
+                            elif data.decode().startswith(f"GET {HC.get_live_endpoint()}"):
+                                http_body = self.do_live_check().get_status_dict()
 
-                                http_body["status"] = HC.HTTP_HEALTH.value[HC.STATUS_SUCCESS.value]
-                                http_body["health_check_type"] = f"{HC.HTTP_HEALTH.value[HC.NAME.value]}"
-                                http_body["system_load"] = f"{os.getloadavg()[0]}, {os.getloadavg()[1]}, " \
-                                                           f"{os.getloadavg()[0]}"
-                                http_body["cpu_count"] = f"{os.cpu_count()}"
+                            elif data.decode().startswith(f"GET {HC.get_ready_endpoint()}"):
+                                http_body = self.do_ready_check().get_status_dict()
 
-                                # TODO: Include additional stats:
-                                #       - Memory usage
-                                #       - Disk usage
-                                #       - CPU usage
-                                #       - Average response time
-                                #       - Number of requests
-                                #       - Number of errors
-                                #       - Number of timeouts
-                                #       - Number of retries
-                                #       - Number of failures
-                                #       - Number of successes
-                                #       - Number of connections
-                                #       - Number of open files
-                                #       - Number of threads
-                                #       - Number of processes
-                                #       - Number of sockets
-                                #       - Number of connections
-                                #       - etc.
+                            elif data.decode().startswith(f"GET {HC.get_version_endpoint()}"):
+                                http_body = self.do_version_check().get_status_dict()
 
-                            elif data.decode().startswith(f"GET {HC.HTTP_LIVE.value[HC.ENDPOINT.value]}"):
-
-                                # TODO: Implement custom check here that returns a status of "LIVE"
-                                #       if the service being monitored has started (even if it is not yet "READY")
-                                #       or "NOT_LIVE" if the service is not detected as started.
-
-                                http_body["status"] = HC.HTTP_LIVE.value[HC.STATUS_SUCCESS.value]
-                                http_body["health_check_type"] = HC.HTTP_LIVE.value[HC.NAME.value]
-
-                            elif data.decode().startswith(f"GET {HC.HTTP_READY.value[HC.ENDPOINT.value]}"):
-
-                                # TODO: Implement custom check here that returns a status of "READY"
-                                #       if the service being monitored is "LIVE" and is ready to accept requests
-                                #       or "NOT_READY" if the service is not "LIVE" or not ready to accept requests.
-
-                                http_body["status"] = HC.HTTP_READY.value[HC.STATUS_SUCCESS.value]
-                                http_body["health_check_type"] = HC.HTTP_READY.value[HC.NAME.value]
-
-                            elif data.decode().startswith(f"GET {HC.VERSION.value[HC.ENDPOINT.value]}"):
-                                # Returns the version of this health checking service.
-                                http_body["status"] = HC.VERSION.value[HC.STATUS_SUCCESS.value]
-                                http_body["health_check_type"] = HC.VERSION.value[HC.NAME.value]
-
-                            elif data.decode().startswith(f"GET {HC.FAVICON.value[HC.ENDPOINT.value]}"):
-                                # Returns the favicon.ico binary file.
-                                status_msg = "(binary file)"
+                            elif data.decode().startswith(f"GET {HC.get_favicon_endpoint()}"):
+                                # Return the favicon.ico binary file.
                                 http_header_content_type = b"Content-Type: image/x-icon\r\n" \
                                                            b"Accept-Ranges: bytes\r\n"
-                                # Read the favicon.ico file into the http_body.
-                                with open("favicon.ico", "rb") as favicon_file:
-                                    http_body = favicon_file.read()
+
+                                hc_favicon = HealthCheckFavicon()
+
+                                if hc_favicon.is_successful():
+                                    http_body = hc_favicon.get_binary_data()
                                     http_body_is_binary_file = True
+                                    status_msg = hc_favicon.get_status_dict()["msg"]
+                                else:
+                                    http_body = hc_favicon.get_status_dict()
 
                             else:
-                                http_body["status"] = HC.UNKNOWN.value[HC.STATUS_SUCCESS.value]
-                                http_body["health_check_type"] = HC.UNKNOWN.value[HC.NAME.value]
+                                http_body = HealthCheckUnknown().get_status_dict()
                                 http_response_log_level = LogLevel.ERROR
 
                             # Build the header and body of the HTTP response.
@@ -357,15 +459,23 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
 
             self.show_listening_message()
 
+    def show_banner(self):
+        """
+        Shows the banner.
+        """
+        self._log(msg="==========================================================================",
+                  indent_level=0, show_prefix=False)
+        self._log(msg=f" {self._service_name} v{self._VERSION}", indent_level=0, show_prefix=False)
+        self._log(msg=f" {self._copyright}", indent_level=0, show_prefix=False)
+        self._log(msg="==========================================================================",
+                  indent_level=0, show_prefix=False)
+
     def start(self):  # pylint: disable=too-many-branches,too-many-statements
         """
         Starts the service.  Will retry up to retry_count times.
         :return:
         """
-        self._log(msg="==========================================================================", indent_level=0)
-        self._log(msg=f" {self._service_name} v{self._VERSION}", indent_level=0)
-        self._log(msg=f" {self._copyright}", indent_level=0)
-        self._log(msg="==========================================================================", indent_level=0)
+        self.show_banner()
         self._log(msg=f"Service listening on: "
                       f"{self.ip_addr}:{self.port} (TCP)", indent_level=0)
 
