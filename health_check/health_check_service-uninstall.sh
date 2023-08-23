@@ -5,7 +5,7 @@
 
 SCRIPT_PATH=$(cd "$(dirname "${0}")" && pwd)
 SCRIPT_NAME=$(basename "${0}")
-VERSION="1.0"
+VERSION="1.1"
 COPYRIGHT_YEAR=$(date +%Y)
 SERVICE_DISPLAY_NAME="Health Check Service"
 SERVICE_NAME="health_check"
@@ -30,7 +30,7 @@ systemctl disable ${SERVICE_NAME}.service
 
 echo "Removing ${SERVICE_DISPLAY_NAME} files"
 rm /etc/systemd/system/${SERVICE_NAME}.service
-rm -r /opt/${SERVICE_NAME}_service
+rm -r ${INSTALL_DIR}
 
 echo "Done"
 echo ""
