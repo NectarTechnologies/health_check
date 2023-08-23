@@ -50,7 +50,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
     """
 
     # Constants.
-    _VERSION = "1.28"
+    _VERSION = "1.33"
     _current_year = date.today().year
     _copyright = f"(C) {_current_year}"
     _service_name = "Health Check Service"
@@ -279,11 +279,13 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
                         break
         return stdout
 
-    @staticmethod
-    def get_uptime():
+    def get_uptime(self):
         """
         :return (str) The uptime of the system in seconds.
         """
+
+        print(f"platform.system(): {platform.system()}")
+
         if "Darwin" in platform.system():
             cmd = ["date", "+%s"]
             now = HealthCheckService.run_command(cmd=cmd)
@@ -293,15 +295,19 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
             cmd = ["sysctl", "-n", "kern.boottime"]
             boot_time = HealthCheckService.run_command(cmd=cmd)
             boot_time = boot_time.split(',')[0].split('=')[1].strip()
-            
+
             return int(now) - int(boot_time)
 
-        elif "Liunx" in platform.system():
-            cmd = ['echo', '$(cat /proc/uptime | cut -f1 -d\'.\')']
-            return HealthCheckService.run_command(cmd=cmd)
+        if "Liunx" in platform.system():
+            # Get the system uptime for linux in seconds.
+            cmd = ["cat", "/proc/uptime"]
+            up_time = HealthCheckService.run_command(cmd=cmd)
+            up_time = up_time.split('.')[0].strip()
 
-        else:
-            return None
+            return up_time
+
+        self._log(msg=f'Unsupported OS platform: "{platform.system()}"', level=LogLevel.WARNING)
+        return None
 
     @staticmethod
     def do_health_check():
@@ -320,7 +326,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
             # Examples of some basic stats:
             hc_health.stats["system_load"] = f"{os.getloadavg()[0]}, {os.getloadavg()[1]}, {os.getloadavg()[0]}"
             hc_health.stats["cpu_count"] = f"{os.cpu_count()}"
-            hc_health.stats["uptime"] = f"{HealthCheckService.get_uptime()}"
+            hc_health.stats["uptime_seconds"] = f"{self.get_uptime()}"
 
             # TODO: Ideas of possible additional stats to include:
             #       - Memory usage
