@@ -17,6 +17,8 @@ import socket
 import argparse
 import traceback
 import json
+import platform
+import subprocess
 
 from datetime import datetime, timezone, date  # pylint: disable=import-error,wrong-import-order
 from time import sleep  # pylint: disable=import-error,wrong-import-order
@@ -48,7 +50,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
     """
 
     # Constants.
-    _VERSION = "1.26"
+    _VERSION = "1.28"
     _current_year = date.today().year
     _copyright = f"(C) {_current_year}"
     _service_name = "Health Check Service"
@@ -256,6 +258,52 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
         return hc_ready
 
     @staticmethod
+    def run_command(cmd=None):
+        """
+        Runs an arbitrary cli command.
+
+        :return: (str) The combined stdout and stderr.
+        """
+        stdout = ""
+        if cmd:
+            with subprocess.Popen(
+                    cmd,
+                    shell=False,
+                    bufsize=0,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT) as proc:
+                while True:
+                    _stdout_line = proc.stdout.readline().decode()
+                    stdout = stdout + _stdout_line
+                    if not _stdout_line:
+                        break
+        return stdout
+
+    @staticmethod
+    def get_uptime():
+        """
+        :return (str) The uptime of the system in seconds.
+        """
+        if "Darwin" in platform.system():
+            cmd = ["date", "+%s"]
+            now = HealthCheckService.run_command(cmd=cmd)
+
+            # Example of output of command "sysctl -n kern.boottime":
+            #  "{ sec = 1692260516, usec = 210443 } Thu Aug 17 02:21:56 2023\n"
+            cmd = ["sysctl", "-n", "kern.boottime"]
+            boot_time = HealthCheckService.run_command(cmd=cmd)
+            boot_time = boot_time.split(',')[0].split('=')[1].strip()
+            
+            return int(now) - int(boot_time)
+
+        elif "Liunx" in platform.system():
+            cmd = ['echo', '$(cat /proc/uptime | cut -f1 -d\'.\')']
+            return HealthCheckService.run_command(cmd=cmd)
+
+        else:
+            return None
+
+    @staticmethod
     def do_health_check():
         """
         Performs a health check. Returns a status of "HEALTHY" if the service being monitored is "LIVE", "READY", and
@@ -272,6 +320,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
             # Examples of some basic stats:
             hc_health.stats["system_load"] = f"{os.getloadavg()[0]}, {os.getloadavg()[1]}, {os.getloadavg()[0]}"
             hc_health.stats["cpu_count"] = f"{os.cpu_count()}"
+            hc_health.stats["uptime"] = f"{HealthCheckService.get_uptime()}"
 
             # TODO: Ideas of possible additional stats to include:
             #       - Memory usage
