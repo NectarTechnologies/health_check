@@ -50,7 +50,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
     """
 
     # Constants.
-    _VERSION = "1.33"
+    _VERSION = "1.37"
     _current_year = date.today().year
     _copyright = f"(C) {_current_year}"
     _service_name = "Health Check Service"
@@ -280,9 +280,6 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
         """
         :return (str) The uptime of the system in seconds.
         """
-
-        print(f"platform.system(): {platform.system()}")
-
         if "Darwin" in platform.system():
             cmd = ["date", "+%s"]
             now = HealthCheckService.run_command(cmd=cmd)
@@ -295,7 +292,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
 
             return int(now) - int(boot_time)
 
-        if "Liunx" in platform.system():
+        if "Linux" in platform.system():
             # Get the system uptime for linux in seconds.
             cmd = ["cat", "/proc/uptime"]
             up_time = HealthCheckService.run_command(cmd=cmd)
