@@ -196,8 +196,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
         hc_version.set_msg(f"{__class__.__name__} v{HealthCheckService._VERSION}")
         return hc_version
 
-    @staticmethod
-    def do_tcp_check():
+    def do_tcp_check(self):
         """
         Performs a TCP check. Returns a status of "UP" if the TCP port is open or "DOWN" if the TCP port is closed.
 
@@ -207,8 +206,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
         hc_tcp.set_status(hc_tcp.status_success())
         return hc_tcp
 
-    @staticmethod
-    def do_live_check():
+    def do_live_check(self):
         """
         Performs a live check. Returns a status of "LIVE" if the service being monitored has started
         (even if it is not yet "READY") or "NOT_LIVE" if the service is not detected as started.
@@ -227,8 +225,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
 
         return hc_live
 
-    @staticmethod
-    def do_ready_check():
+    def do_ready_check(self):
         """
         Performs a live check. Returns a status of "READY" if the service being monitored is "LIVE" and
         is ready to accept requests or "NOT_READY" if the service is not "LIVE" or not ready to accept requests.
@@ -238,7 +235,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
         hc_ready = HealthCheckReady()
 
         # First do a "live" check.
-        hc_live = HealthCheckService.do_live_check()
+        hc_live = self.do_live_check()
 
         if hc_live.is_live():
 
@@ -309,8 +306,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
         self._log(msg=f'Unsupported OS platform: "{platform.system()}"', level=LogLevel.WARNING)
         return None
 
-    @staticmethod
-    def do_health_check():
+    def do_health_check(self):
         """
         Performs a health check. Returns a status of "HEALTHY" if the service being monitored is "LIVE", "READY", and
         is healthy or "NOT_HEALTHY" if the service is not "LIVE", not "READY", or not healthy.
@@ -320,7 +316,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
         hc_health = HealthCheckHealth()
 
         # First do a "ready" check (which in turn will also do a "live" check).
-        hc_ready = HealthCheckService.do_ready_check()
+        hc_ready = self.do_ready_check()
 
         if hc_ready.is_ready():
             # Examples of some basic stats:
@@ -358,7 +354,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
         else:
             # Do need to do any additional checks if the service is not "LIVE".
             hc_health.set_status(hc_health.status_failure())
-            hc_health.set_msg(f'Received a {hc_ready.get_status()} status from the {hc_ready.name()} check ' \
+            hc_health.set_msg(f'Received a {hc_ready.get_status()} status from the {hc_ready.name()} check '
                               f'with message: [{hc_ready.get_status_dict()["msg"]}]')
 
         return hc_health
@@ -473,7 +469,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
                                     http_header = http_header + http_header_content_length
 
                                     # Build the full packet (header + body).
-                                    http_response_bytes = (http_header + self.http_header_delimiter + http_body)
+                                    http_response_bytes = http_header + self.http_header_delimiter + http_body
 
                                     self._log(msg=f"Response: {status_msg}", level=http_response_log_level)
                                 else:
