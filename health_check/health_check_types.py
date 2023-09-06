@@ -8,6 +8,7 @@ Used by health_check_client.py
 import os
 
 from health_check_types_enum import HealthCheckTypesEnum as HCEnum  # pylint: disable=import-error,wrong-import-order
+from health_check_util import HealthCheckUtil  # pylint: disable=import-error,wrong-import-order
 
 
 class HealthCheckTypes:  # pylint: disable=too-few-public-methods
@@ -16,10 +17,16 @@ class HealthCheckTypes:  # pylint: disable=too-few-public-methods
     """
     health_check_type = None
     current_status = None
+    data = {}
     _msg = ""
+    _run_script = None
 
     def __init__(self, hc_type=None):
         self.health_check_type = hc_type
+        self.current_status = None
+        self.data = {}
+        self._msg = ""
+        self._run_script = None
 
     def _raise_exception(self, msg=None):
         """
@@ -127,15 +134,13 @@ class HealthCheckTypes:  # pylint: disable=too-few-public-methods
         :return: (bool) True if the health check is successful, False otherwise.
         """
         if self.current_status is None:
-            self._raise_exception("Health check has not yet been performed.")
+            self.run_check()
         return self.current_status == self.status_success()
 
     def get_status(self):
         """
         :return: (str) The current status of the health check.
         """
-        if self.current_status is None:
-            self._raise_exception("Health check has not yet been performed.")
         return self.current_status
 
     def get_status_dict(self):
@@ -153,7 +158,28 @@ class HealthCheckTypes:  # pylint: disable=too-few-public-methods
         if self._msg:
             return_dict["msg"] = self._msg
 
+        if self.data:
+            return_dict["data"] = self.data
+
         return return_dict
+
+    def run_check(self):
+        """
+        Run the specific check.
+        :return: (int) The return code of the script.
+        """
+        return_code = None
+        if self._run_script is not None:
+            self.data, return_code = HealthCheckUtil.run_command(self._run_script)
+            if return_code == HealthCheckUtil.SUCCESS:
+                self.set_status(self.status_success())
+            else:
+                self.set_status(self.status_failure())
+        else:
+            self.set_status(self.status_failure())
+            self.data["msg"] = f"No run script defined for {self.name()} check."
+
+        return return_code
 
 
 class HealthCheckVersion(HealthCheckTypes):
@@ -183,8 +209,10 @@ class HealthCheckLive(HealthCheckTypes):
     """
     Health check live.
     """
-    def __init__(self):
+    def __init__(self, run_script=None):
         super().__init__(HCEnum.HTTP_LIVE.value)
+        if run_script is not None:
+            self._run_script = run_script
 
     def is_live(self):
         """
@@ -197,8 +225,10 @@ class HealthCheckReady(HealthCheckTypes):
     """
     Health check ready.
     """
-    def __init__(self):
+    def __init__(self, run_script=None):
         super().__init__(HCEnum.HTTP_READY.value)
+        if run_script is not None:
+            self._run_script = run_script
 
     def is_ready(self):
         """
@@ -211,10 +241,10 @@ class HealthCheckHealth(HealthCheckTypes):
     """
     Health check health.
     """
-    stats = {}
-
-    def __init__(self):
+    def __init__(self, run_script=None):
         super().__init__(HCEnum.HTTP_HEALTH.value)
+        if run_script is not None:
+            self._run_script = run_script
 
     def is_healthy(self):
         """
@@ -224,12 +254,12 @@ class HealthCheckHealth(HealthCheckTypes):
 
     def get_status_dict(self):
         """
-        This extends the base class method by adding the stats to the return dict.
-        :return: (dict) The current status of the health check including any stats.
+        This extends the base class method by adding the data to the return dict.
+        :return: (dict) The current status of the health check including any data.
         """
         return_dict = super().get_status_dict()
-        if self.stats:
-            return_dict["stats"] = self.stats
+        if self.data:
+            return_dict["data"] = self.data
         return return_dict
 
 

@@ -20,30 +20,15 @@ import argparse
 import traceback
 import json
 import platform
-import subprocess
 
 from datetime import datetime, timezone, date  # pylint: disable=import-error,wrong-import-order
 from time import sleep  # pylint: disable=import-error,wrong-import-order
-from enum import Enum
 from health_check_types import (HealthCheckVersion, HealthCheckTcp,  # pylint: disable=import-error,wrong-import-order
                                 HealthCheckLive, HealthCheckReady, HealthCheckHealth, HealthCheckFavicon,
                                 HealthCheckUnknown)
 from health_check_types import HealthCheckTypes as HC  # pylint: disable=import-error,wrong-import-order
-
-
-class LogLevel(Enum):  # pylint: disable=too-few-public-methods
-    """
-    Log levels. Used to control the verbosity of the log output.
-    Order of log levels from highest to least verbose (top is most verbose):
-        DEBUG
-        INFO
-        WARNING
-        ERROR
-    """
-    DEBUG = 1, 'DEBUG'
-    INFO = 2, 'INFO'
-    WARNING = 3, 'WARNING'
-    ERROR = 4, 'ERROR'
+from health_check_util import HealthCheckUtil  # pylint: disable=import-error,wrong-import-order
+from health_check_util import LogLevel  # pylint: disable=import-error,wrong-import-order
 
 
 class HealthCheckService:  # pylint: disable=too-many-instance-attributes
@@ -52,7 +37,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
     """
 
     # Constants.
-    _VERSION = "1.37"
+    _VERSION = "1.39"
     _current_year = date.today().year
     _copyright = f"(C) {_current_year}"
     _service_name = "Health Check Service"
@@ -71,8 +56,13 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
     log_level_default = LogLevel.INFO  # default log level
     options = None  # command line options
     sock = None  # socket
+    live_check_script = None  # path to live check script
+    ready_check_script = None  # path to ready check script
+    health_check_script = None  # path to health check script
 
-    def __init__(self, ip_addr=None, port=None, retry_count=None):  # pylint: disable=too-many-branches
+    def __init__(self,  # pylint: disable=too-many-branches,too-many-statements,too-many-arguments
+                 ip_addr=None, port=None, retry_count=None, live_check_script=None, ready_check_script=None,
+                 health_check_script=None):
         """
         Constructor.
 
@@ -81,6 +71,18 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
         :param port: (int) The TCP port to listen on. Default is 5757.
 
         :param retry_count: (int) The number of times to retry starting the service. Default is 5.
+
+        :param live_check_script: (str) Path to local script to run to check "live" status. Script return code must
+            return zero for "live" and non-zero for "not live". Any stdout or stderr output will be returned in the
+            "msg" string.
+
+        :param ready_check_script: (str) Path to local script to run to check "ready" status. Script return code must
+            return zero for "ready" and non-zero for "not ready". Any stdout or stderr output will be returned in the
+            "msg" string.
+
+        :param health_check_script: (str) Path to local script to run to check "health" status. Script return code must
+            return zero for "healthy" and non-zero for "not healthy". Any stdout or stderr output will be returned in
+            the "msg" string.
         """
 
         super().__init__()
@@ -96,6 +98,15 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
         if retry_count is not None:
             self.retry_count = retry_count
 
+        if live_check_script is not None:
+            self.live_check_script = live_check_script
+
+        if ready_check_script is not None:
+            self.ready_check_script = ready_check_script
+
+        if health_check_script is not None:
+            self.health_check_script = health_check_script
+
         parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
 
         parser.add_argument('-v', '--version', dest='show_version', action="store_true",
@@ -109,6 +120,21 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
 
         parser.add_argument('-p', '--port', dest='port', action="append",
                             help='TCP port to listen on. Default is TCP port "5757"\n')
+
+        parser.add_argument('--live_check_script', dest='live_check_script', action="append",
+                            help='Path to local script to run to check "live" status. Script return code must \n'
+                                 'return zero for "live" and non-zero for "not live". Any stdout or stderr \n'
+                                 'output will be returned in the "msg" string.\n')
+
+        parser.add_argument('--ready_check_script', dest='ready_check_script', action="append",
+                            help='Path to local script to run to check "ready" status. Script return code must \n'
+                                 'return zero for "ready" and non-zero for "not ready". Any stdout or stderr \n'
+                                 'output will be returned in the "msg" string.\n')
+
+        parser.add_argument('--health_check_script', dest='health_check_script', action="append",
+                            help='Path to local script to run to check "health" status. Script return code must \n'
+                                 'return zero for "healthy" and non-zero for "not healthy". Any stdout or stderr \n'
+                                 'output will be returned in the "msg" string.\n')
 
         try:
             self.options, _ = parser.parse_known_args(sys.argv[:])
@@ -133,6 +159,15 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
 
         if self.options.port is not None:
             self.port = int(self.options.port[0])
+
+        if self.options.live_check_script is not None:
+            self.live_check_script = self.options.live_check_script[0]
+
+        if self.options.ready_check_script is not None:
+            self.ready_check_script = self.options.ready_check_script[0]
+
+        if self.options.health_check_script is not None:
+            self.health_check_script = self.options.health_check_script[0]
 
         if self.options.show_version:
             self.show_banner()
@@ -187,6 +222,33 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
         self._log(msg="---------------------------------------------------------------", indent_level=0)
         self._log(msg="Listening for incoming connections...", indent_level=0)
 
+    def get_uptime(self):
+        """
+        :return (str) The uptime of the system in seconds.
+        """
+        if "Darwin" in platform.system():
+            cmd = ["date", "+%s"]
+            now, _ = HealthCheckUtil.run_command(cmd=cmd)
+
+            # Example of output of command "sysctl -n kern.boottime":
+            #  "{ sec = 1692260516, usec = 210443 } Thu Aug 17 02:21:56 2023\n"
+            cmd = ["sysctl", "-n", "kern.boottime"]
+            boot_time, _ = HealthCheckUtil.run_command(cmd=cmd)
+            boot_time = boot_time.split(',')[0].split('=')[1].strip()
+
+            return int(now) - int(boot_time)
+
+        if "Linux" in platform.system():
+            # Get the system uptime for linux in seconds.
+            cmd = ["cat", "/proc/uptime"]
+            up_time, _ = HealthCheckUtil.run_command(cmd=cmd)
+            up_time = up_time.split('.')[0].strip()
+
+            return up_time
+
+        self._log(msg=f'Unsupported OS platform: "{platform.system()}"', level=LogLevel.WARNING)
+        return None
+
     @staticmethod
     def do_version_check():
         """
@@ -195,7 +257,8 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
         """
         hc_version = HealthCheckVersion()
         hc_version.set_status(hc_version.status_success())
-        hc_version.set_msg(f"{__class__.__name__} v{HealthCheckService._VERSION}")
+        hc_version.data["service_name"] = HealthCheckService._service_name
+        hc_version.data["version"] = HealthCheckService._VERSION
         return hc_version
 
     def do_tcp_check(self):
@@ -211,151 +274,57 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
     def do_live_check(self):
         """
         Performs a live check. Returns a status of "LIVE" if the service being monitored has started
-        (even if it is not yet "READY") or "NOT_LIVE" if the service is not detected as started.
+        (even if it is not yet "READY"). Returns "NOT_LIVE" if the service is not detected as started.
 
         :return: (HealthCheckLive) The live check object.
         """
-        hc_live = HealthCheckLive()
-
-        # TODO: Implement custom "live" check(s) here.
-
-        # TODO: Implement if / else.
-        # If "alive"
-        hc_live.set_status(hc_live.status_success())
-        # Else
-        # hc_live.set_status(hc_live.status_failure())
-
+        hc_live = HealthCheckLive(run_script=self.live_check_script)
+        return_code = hc_live.run_check()
+        self._log(msg=f"{hc_live.name()} check script return code : {return_code}", level=LogLevel.DEBUG)
+        self._log(msg=f"{hc_live.name()} check script status      : {hc_live.get_status()}", level=LogLevel.DEBUG)
         return hc_live
 
     def do_ready_check(self):
         """
         Performs a live check. Returns a status of "READY" if the service being monitored is "LIVE" and
-        is ready to accept requests or "NOT_READY" if the service is not "LIVE" or not ready to accept requests.
+        is ready to accept requests. Returns "NOT_READY" if the service is not "LIVE" or not ready to accept requests.
 
         :return: (HealthCheckReady) The ready check object.
         """
-        hc_ready = HealthCheckReady()
+        hc_ready = HealthCheckReady(run_script=self.ready_check_script)
 
         # First do a "live" check.
         hc_live = self.do_live_check()
 
         if hc_live.is_live():
+            hc_ready.is_ready()
+            return hc_ready
 
-            # TODO: Implement custom "ready" check(s) here.
-
-            # TODO: Implement if / else.
-            # If "ready"
-            hc_ready.set_status(hc_ready.status_success())
-            # Else
-            # hc_ready.set_status(hc_ready.status_failure())
-
-        else:
-            # Do need to do any additional checks if the service is not "LIVE".
-            hc_ready.set_status(hc_ready.status_failure())
-            hc_ready.set_msg(f'Received a {hc_live.get_status()} status from the {hc_live.name()} check.')
-
+        hc_ready.set_status(hc_ready.status_failure())
+        hc_ready.set_msg(f'Received a {hc_live.get_status()} status from the {hc_live.name()} check with '
+                         f'message: {hc_live.get_status_dict()}')
         return hc_ready
-
-    @staticmethod
-    def run_command(cmd=None):
-        """
-        Runs an arbitrary cli command.
-
-        :return: (str) The combined stdout and stderr.
-        """
-        stdout = ""
-        if cmd:
-            with subprocess.Popen(
-                    cmd,
-                    shell=False,
-                    bufsize=0,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT) as proc:
-                while True:
-                    _stdout_line = proc.stdout.readline().decode()
-                    stdout = stdout + _stdout_line
-                    if not _stdout_line:
-                        break
-        return stdout
-
-    def get_uptime(self):
-        """
-        :return (str) The uptime of the system in seconds.
-        """
-        if "Darwin" in platform.system():
-            cmd = ["date", "+%s"]
-            now = HealthCheckService.run_command(cmd=cmd)
-
-            # Example of output of command "sysctl -n kern.boottime":
-            #  "{ sec = 1692260516, usec = 210443 } Thu Aug 17 02:21:56 2023\n"
-            cmd = ["sysctl", "-n", "kern.boottime"]
-            boot_time = HealthCheckService.run_command(cmd=cmd)
-            boot_time = boot_time.split(',')[0].split('=')[1].strip()
-
-            return int(now) - int(boot_time)
-
-        if "Linux" in platform.system():
-            # Get the system uptime for linux in seconds.
-            cmd = ["cat", "/proc/uptime"]
-            up_time = HealthCheckService.run_command(cmd=cmd)
-            up_time = up_time.split('.')[0].strip()
-
-            return up_time
-
-        self._log(msg=f'Unsupported OS platform: "{platform.system()}"', level=LogLevel.WARNING)
-        return None
 
     def do_health_check(self):
         """
         Performs a health check. Returns a status of "HEALTHY" if the service being monitored is "LIVE", "READY", and
-        is healthy or "NOT_HEALTHY" if the service is not "LIVE", not "READY", or not healthy.
+        is healthy. Returns "NOT_HEALTHY" if the service is not "LIVE", not "READY", or not healthy.
 
         :return: (HealthCheckHealth) The health check object.
         """
-        hc_health = HealthCheckHealth()
+        hc_health = HealthCheckHealth(run_script=self.health_check_script)
 
         # First do a "ready" check (which in turn will also do a "live" check).
         hc_ready = self.do_ready_check()
 
         if hc_ready.is_ready():
-            # Examples of some basic stats:
-            hc_health.stats["system_load"] = f"{os.getloadavg()[0]}, {os.getloadavg()[1]}, {os.getloadavg()[0]}"
-            hc_health.stats["cpu_count"] = f"{os.cpu_count()}"
-            hc_health.stats["uptime_seconds"] = f"{self.get_uptime()}"
+            hc_health.is_healthy()
+            return hc_health
 
-            # TODO: Ideas of possible additional stats to include:
-            #       - Memory usage
-            #       - Disk usage
-            #       - CPU usage
-            #       - Average response time
-            #       - Number of requests
-            #       - Number of errors
-            #       - Number of timeouts
-            #       - Number of retries
-            #       - Number of failures
-            #       - Number of successes
-            #       - Number of connections
-            #       - Number of open files
-            #       - Number of threads
-            #       - Number of processes
-            #       - Number of sockets
-            #       - Number of connections
-            #       - etc.
-
-            # TODO: Implement custom "ready" check(s) here.
-
-            # If healthy
-            hc_health.set_status(hc_health.status_success())
-
-            # If not healthy
-            # hc_health.set_status(hc_health.status_failure())
-
-        else:
-            # Do need to do any additional checks if the service is not "LIVE".
-            hc_health.set_status(hc_health.status_failure())
-            hc_health.set_msg(f'Received a {hc_ready.get_status()} status from the {hc_ready.name()} check '
-                              f'with message: [{hc_ready.get_status_dict()["msg"]}]')
-
+        # Do need to do any additional checks if the service is not "LIVE".
+        hc_health.set_status(hc_health.status_failure())
+        hc_health.set_msg(f'Received a {hc_ready.get_status()} status from the {hc_ready.name()} check '
+                          f'with message: [{hc_ready.get_status_dict()["msg"]}],')
         return hc_health
 
     def health_check_service_run_loop(self):  # pylint: disable=too-many-branches,too-many-statements,too-many-locals
@@ -528,6 +497,29 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
         :return:
         """
         self.show_banner()
+
+        self._log(msg=f"Log level: {self.log_level_default.value[1]}", indent_level=0, show_prefix=False)
+        self._log(msg="Using the following health check scripts:", indent_level=0, show_prefix=False)
+
+        if self.live_check_script is None:
+            script_path = "None"
+        else:
+            script_path = os.path.abspath(self.live_check_script)
+        self._log(msg=f"  live_check_script  : {script_path}", indent_level=0, show_prefix=False)
+
+        if self.ready_check_script is None:
+            script_path = "None"
+        else:
+            script_path = os.path.abspath(self.ready_check_script)
+        self._log(msg=f"  ready_check_script : {script_path}", indent_level=0, show_prefix=False)
+
+        if self.health_check_script is None:
+            script_path = "None"
+        else:
+            script_path = os.path.abspath(self.health_check_script)
+        self._log(msg=f"  health_check_script: {script_path}", indent_level=0, show_prefix=False)
+
+        self._log(msg="", indent_level=0, show_prefix=False)
         self._log(msg=f"Service listening on: "
                       f"{self.ip_addr}:{self.port} (TCP)", indent_level=0)
 

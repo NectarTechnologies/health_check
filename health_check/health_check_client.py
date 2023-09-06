@@ -18,7 +18,6 @@ from time import sleep  # pylint: disable=import-error,wrong-import-order
 from enum import Enum
 from health_check_types import (HealthCheckVersion, HealthCheckTcp,  # pylint: disable=import-error,wrong-import-order
                                 HealthCheckLive, HealthCheckReady, HealthCheckHealth, HealthCheckFavicon)
-from health_check_types import HealthCheckTypes as HC  # pylint: disable=import-error,wrong-import-order
 from health_check_types_enum import HealthCheckTypesEnum as HCEnum  # pylint: disable=import-error,wrong-import-order
 
 
@@ -43,7 +42,7 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
     """
 
     # Constants.
-    _VERSION = "1.17"
+    _VERSION = "1.18"
     _current_year = date.today().year
     _copyright = f"(C) {_current_year}"
     _service_name = "Health Check Client"
@@ -260,6 +259,7 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
                 self.check_server_version = check_server_version
 
         # If all health check types are False, then default to TCP health check.
+        # pylint: disable=too-many-boolean-expressions
         if not self.check_tcp and \
             not self.check_http_live and \
             not self.check_http_ready and \
