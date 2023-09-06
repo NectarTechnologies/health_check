@@ -170,11 +170,13 @@ class HealthCheckTypes:  # pylint: disable=too-few-public-methods
         """
         return_code = None
         if self._run_script is not None:
-            self.data, return_code = HealthCheckUtil.run_command(self._run_script)
+            script_output, return_code = HealthCheckUtil.run_command(self._run_script)
             if return_code == HealthCheckUtil.SUCCESS:
                 self.set_status(self.status_success())
             else:
                 self.set_status(self.status_failure())
+            self.data["return_code"] = return_code
+            self.data["script_output"] = script_output
         else:
             self.set_status(self.status_failure())
             self.data["msg"] = f"No run script defined for {self.name()} check."
