@@ -37,7 +37,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
     """
 
     # Constants.
-    _VERSION = "1.39"
+    _VERSION = "1.47"
     _current_year = date.today().year
     _copyright = f"(C) {_current_year}"
     _service_name = "Health Check Service"
@@ -59,10 +59,11 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
     live_check_script = None  # path to live check script
     ready_check_script = None  # path to ready check script
     health_check_script = None  # path to health check script
+    include_data_details = None  # include data details in the health check script responses
 
     def __init__(self,  # pylint: disable=too-many-branches,too-many-statements,too-many-arguments
                  ip_addr=None, port=None, retry_count=None, live_check_script=None, ready_check_script=None,
-                 health_check_script=None):
+                 health_check_script=None, include_data_details=False):
         """
         Constructor.
 
@@ -83,6 +84,8 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
         :param health_check_script: (str) Path to local script to run to check "health" status. Script return code must
             return zero for "healthy" and non-zero for "not healthy". Any stdout or stderr output will be returned in
             the "msg" string.
+
+        :param include_data_details: (bool) If True, then include data details in the health check script responses.
         """
 
         super().__init__()
@@ -106,6 +109,9 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
 
         if health_check_script is not None:
             self.health_check_script = health_check_script
+
+        if include_data_details is not None:
+            self.include_data_details = include_data_details
 
         parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
 
@@ -135,6 +141,12 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
                             help='Path to local script to run to check "health" status. Script return code must \n'
                                  'return zero for "healthy" and non-zero for "not healthy". Any stdout or stderr \n'
                                  'output will be returned in the "msg" string.\n')
+
+        parser.add_argument('--include_data_details', dest='include_data_details', action="store_true",
+                            default=False, help='Include data details of the health check script(s) in the health \n'
+                                                'check responses. Can also be controlled via a query string \n'
+                                                'in the incoming HTTP request URL. Example:\n'
+                                                '    http://1.2.3.4:5757/ready?include_data_details=true\n')
 
         try:
             self.options, _ = parser.parse_known_args(sys.argv[:])
@@ -172,6 +184,27 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
         if self.options.show_version:
             self.show_banner()
             sys.exit(0)
+
+        if self.live_check_script is not None:
+            if not os.path.isfile(os.path.abspath(self.live_check_script)):
+                self._log(msg=f'Live check script "{self.live_check_script}" does not exist.',
+                          level=LogLevel.ERROR)
+                sys.exit(1)
+
+        if self.ready_check_script is not None:
+            if not os.path.isfile(os.path.abspath(self.ready_check_script)):
+                self._log(msg=f'Ready check script "{self.ready_check_script}" does not exist.',
+                          level=LogLevel.ERROR)
+                sys.exit(1)
+
+        if self.health_check_script is not None:
+            if not os.path.isfile(os.path.abspath(self.health_check_script)):
+                self._log(msg=f'Health check script "{self.health_check_script}" does not exist.',
+                          level=LogLevel.ERROR)
+                sys.exit(1)
+
+        if self.options.include_data_details:
+            self.include_data_details = True
 
     @staticmethod
     def find_len_of_longest_log_level_name():
@@ -271,61 +304,81 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
         hc_tcp.set_status(hc_tcp.status_success())
         return hc_tcp
 
-    def do_live_check(self):
+    def do_live_check(self, include_data_details=False):
         """
         Performs a live check. Returns a status of "LIVE" if the service being monitored has started
         (even if it is not yet "READY"). Returns "NOT_LIVE" if the service is not detected as started.
 
+        :param include_data_details: (bool) If True, then include data details in the health check script responses.
         :return: (HealthCheckLive) The live check object.
         """
         hc_live = HealthCheckLive(run_script=self.live_check_script)
-        return_code = hc_live.run_check()
-        self._log(msg=f"{hc_live.name()} check script return code : {return_code}", level=LogLevel.DEBUG)
-        self._log(msg=f"{hc_live.name()} check script status      : {hc_live.get_status()}", level=LogLevel.DEBUG)
+        hc_live.run_check(include_data_details=include_data_details)
+        self._log(msg=f"hc_live object: \n{hc_live.pretty_str()}", level=LogLevel.DEBUG)
         return hc_live
 
-    def do_ready_check(self):
+    def do_ready_check(self, include_data_details=False):
         """
         Performs a live check. Returns a status of "READY" if the service being monitored is "LIVE" and
         is ready to accept requests. Returns "NOT_READY" if the service is not "LIVE" or not ready to accept requests.
 
+        :param include_data_details: (bool) If True, then include data details in the health check script responses.
         :return: (HealthCheckReady) The ready check object.
         """
+        # First do a "live" check.
+        hc_live = self.do_live_check(include_data_details=include_data_details)
+
         hc_ready = HealthCheckReady(run_script=self.ready_check_script)
 
-        # First do a "live" check.
-        hc_live = self.do_live_check()
-
-        if hc_live.is_live():
-            hc_ready.is_ready()
-            return hc_ready
-
-        hc_ready.set_status(hc_ready.status_failure())
-        hc_ready.set_msg(f'Received a {hc_live.get_status()} status from the {hc_live.name()} check with '
-                         f'message: {hc_live.get_status_dict()}')
+        if hc_live.is_live(include_data_details=include_data_details):
+            hc_ready.is_ready(include_data_details=include_data_details)
+            self._log(msg=f"hc_ready object: \n{hc_ready.pretty_str()}", level=LogLevel.DEBUG)
+        else:
+            self._log(msg=f"hc_ready object: \n{hc_ready.pretty_str()}", level=LogLevel.DEBUG)
+            hc_ready.set_status(hc_ready.status_failure())
+            hc_ready.set_msg(f'Received a {hc_live.get_status()} status from the {hc_live.name()} check with '
+                             f'message: {hc_live.get_status_dict()}')
         return hc_ready
 
-    def do_health_check(self):
+    def do_health_check(self, include_data_details=False):
         """
         Performs a health check. Returns a status of "HEALTHY" if the service being monitored is "LIVE", "READY", and
         is healthy. Returns "NOT_HEALTHY" if the service is not "LIVE", not "READY", or not healthy.
 
+        :param include_data_details: (bool) If True, then include data details in the health check script responses.
         :return: (HealthCheckHealth) The health check object.
         """
+        # First do a "ready" check (which in turn will also do a "live" check).
+        hc_ready = self.do_ready_check(include_data_details=include_data_details)
+
         hc_health = HealthCheckHealth(run_script=self.health_check_script)
 
-        # First do a "ready" check (which in turn will also do a "live" check).
-        hc_ready = self.do_ready_check()
-
-        if hc_ready.is_ready():
-            hc_health.is_healthy()
-            return hc_health
-
-        # Do need to do any additional checks if the service is not "LIVE".
-        hc_health.set_status(hc_health.status_failure())
-        hc_health.set_msg(f'Received a {hc_ready.get_status()} status from the {hc_ready.name()} check '
-                          f'with message: [{hc_ready.get_status_dict()["msg"]}],')
+        if hc_ready.is_ready(include_data_details=include_data_details):
+            hc_health.is_healthy(include_data_details=include_data_details)
+            self._log(msg=f"hc_health object: \n{hc_health.pretty_str()}", level=LogLevel.DEBUG)
+        else:
+            self._log(msg=f"hc_health object: \n{hc_health.pretty_str()}", level=LogLevel.DEBUG)
+            hc_health.set_status(hc_health.status_failure())
+            hc_health.set_msg(f'Received a {hc_ready.get_status()} status from the {hc_ready.name()} check '
+                              f'with message: [{hc_ready.get_status_dict()["msg"]}],')
         return hc_health
+
+    def process_boolean_query_string_arg(self, query_string_arg=None):
+        """
+        Processes a boolean query string argument.
+        :param query_string_arg: (str) The query string argument.
+        :return: (bool) The boolean value of the query string argument. Returns None if the query string argument is
+            not "true", "True", "false", or "False".
+        """
+        # Handle cases of "include_data_details" being "true", "True", "false", or "False".
+        if query_string_arg.lower() == "true":
+            return True
+
+        if query_string_arg.lower() == "false":
+            return False
+
+        self._log(msg=f'Unknown query string argument boolean value: "{query_string_arg}"', level=LogLevel.WARNING)
+        return None
 
     def health_check_service_run_loop(self):  # pylint: disable=too-many-branches,too-many-statements,too-many-locals
         """
@@ -367,13 +420,30 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
                     else:
                         self._log(msg=f"Request bytes: {data}", level=LogLevel.DEBUG)
 
+                        data = data.decode()
+                        query_string_args_dict = {}
                         status_msg = ''
+                        _details = self.include_data_details
 
                         # If data starts with "GET ", then it is an HTTP request.
-                        if data.decode().startswith("GET "):
+                        if data.startswith("GET "):
+                            # Is a query string present?
+                            header_first_line = data.split("\r\n")[0]
+                            if "?" in header_first_line:
+                                # Parse all the query string arguments into a dict.
+                                query_string_raw = header_first_line.split("?")[1].split(" ")[0]
+                                query_string_args = query_string_raw.split("&")
+                                for query_string_arg in query_string_args:
+                                    query_string_args_dict[query_string_arg.split("=")[0]] = \
+                                        query_string_arg.split("=")[1]
+
+                                if "include_data_details" in query_string_args_dict:
+                                    _details = self.process_boolean_query_string_arg(
+                                        query_string_arg=query_string_args_dict["include_data_details"])
+
                             # Extract the HTTP endpoint requested.
-                            http_method = data.decode().split(" ")[0]
-                            http_endpoint = data.decode().split(" ")[1:][0]
+                            http_method = data.split(" ")[0]
+                            http_endpoint = data.split(" ")[1:][0]
 
                             self._log(msg=f"Request: {http_method} {http_endpoint}")
 
@@ -391,19 +461,19 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
                             http_response_log_level = LogLevel.INFO
 
                             # Check which HTTP endpoint was requested.
-                            if data.decode().startswith(f"GET {HC.get_health_endpoint()}"):
-                                http_body = self.do_health_check().get_status_dict()
+                            if data.startswith(f"GET {HC.get_health_endpoint()}"):
+                                http_body = self.do_health_check(_details).get_status_dict()
 
-                            elif data.decode().startswith(f"GET {HC.get_live_endpoint()}"):
-                                http_body = self.do_live_check().get_status_dict()
+                            elif data.startswith(f"GET {HC.get_live_endpoint()}"):
+                                http_body = self.do_live_check(_details).get_status_dict()
 
-                            elif data.decode().startswith(f"GET {HC.get_ready_endpoint()}"):
-                                http_body = self.do_ready_check().get_status_dict()
+                            elif data.startswith(f"GET {HC.get_ready_endpoint()}"):
+                                http_body = self.do_ready_check(_details).get_status_dict()
 
-                            elif data.decode().startswith(f"GET {HC.get_version_endpoint()}"):
+                            elif data.startswith(f"GET {HC.get_version_endpoint()}"):
                                 http_body = self.do_version_check().get_status_dict()
 
-                            elif data.decode().startswith(f"GET {HC.get_favicon_endpoint()}"):
+                            elif data.startswith(f"GET {HC.get_favicon_endpoint()}"):
                                 # Return the favicon.ico binary file.
                                 http_header_content_type = b"Content-Type: image/x-icon\r\n" \
                                                            b"Accept-Ranges: bytes\r\n"
@@ -491,14 +561,10 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
         self._log(msg="==========================================================================",
                   indent_level=0, show_prefix=False)
 
-    def start(self):  # pylint: disable=too-many-branches,too-many-statements
+    def show_health_check_scripts(self):
         """
-        Starts the service.  Will retry up to retry_count times.
-        :return:
+        Shows the health check scripts that will be used.
         """
-        self.show_banner()
-
-        self._log(msg=f"Log level: {self.log_level_default.value[1]}", indent_level=0, show_prefix=False)
         self._log(msg="Using the following health check scripts:", indent_level=0, show_prefix=False)
 
         if self.live_check_script is None:
@@ -518,6 +584,17 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
         else:
             script_path = os.path.abspath(self.health_check_script)
         self._log(msg=f"  health_check_script: {script_path}", indent_level=0, show_prefix=False)
+
+    def start(self):  # pylint: disable=too-many-branches,too-many-statements
+        """
+        Starts the service.  Will retry up to retry_count times.
+        :return:
+        """
+        self.show_banner()
+
+        self._log(msg=f"Log level: {self.log_level_default.value[1]}", indent_level=0, show_prefix=False)
+
+        self.show_health_check_scripts()
 
         self._log(msg="", indent_level=0, show_prefix=False)
         self._log(msg=f"Service listening on: "

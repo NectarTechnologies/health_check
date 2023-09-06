@@ -6,6 +6,8 @@ Used by health_check_service.py
 Used by health_check_client.py
 """
 import os
+import ast
+import json
 
 from health_check_types_enum import HealthCheckTypesEnum as HCEnum  # pylint: disable=import-error,wrong-import-order
 from health_check_util import HealthCheckUtil  # pylint: disable=import-error,wrong-import-order
@@ -15,18 +17,43 @@ class HealthCheckTypes:  # pylint: disable=too-few-public-methods
     """
     Health check types.
     """
-    health_check_type = None
     current_status = None
-    data = {}
-    _msg = ""
+    health_check_type = None
+    _msg = None
     _run_script = None
+    _last_return_code = None
+    data = {}
+    include_data_details = False
 
     def __init__(self, hc_type=None):
         self.health_check_type = hc_type
         self.current_status = None
-        self.data = {}
-        self._msg = ""
+        self._msg = None
         self._run_script = None
+        self._last_return_code = None
+        self.data = {}
+
+    def __str__(self):
+        """
+        :return: (str) Prints the string representation of the health check type instance in JSON format.
+        """
+        tmp_dict = {
+            "current_status": self.current_status,
+            "health_check_type": self.health_check_type,
+            "_msg": self._msg,
+            "_run_script": self._run_script,
+            "_last_return_code": self._last_return_code,
+            "data": self.data
+        }
+        return str(tmp_dict)
+
+    def pretty_str(self):
+        """
+        :return: (str) Prints the string representation of the health check type instance in JSON format.
+        """
+        tmp = str(self).replace("None", '"None"')
+        tmp = ast.literal_eval(tmp)
+        return json.dumps(tmp, indent=4)
 
     def _raise_exception(self, msg=None):
         """
@@ -129,12 +156,21 @@ class HealthCheckTypes:  # pylint: disable=too-few-public-methods
             self._raise_exception(f'Cannot set msg to "{msg}."')
         self._msg = msg
 
-    def is_successful(self):
+    def set_run_script(self, run_script=None):
         """
+        Set the run script of the health check.
+        """
+        if run_script is None:
+            self._raise_exception(f'Cannot set run_script to "{run_script}."')
+        self._run_script = os.path.abspath(run_script)
+
+    def is_successful(self, include_data_details=False):
+        """
+        :param include_data_details: (bool) True to populate the data dictionary with script details, False otherwise.
         :return: (bool) True if the health check is successful, False otherwise.
         """
         if self.current_status is None:
-            self.run_check()
+            self.run_check(include_data_details=include_data_details)
         return self.current_status == self.status_success()
 
     def get_status(self):
@@ -155,7 +191,7 @@ class HealthCheckTypes:  # pylint: disable=too-few-public-methods
             "health_check_type": self.name()
         }
 
-        if self._msg:
+        if self._msg is not None:
             return_dict["msg"] = self._msg
 
         if self.data:
@@ -163,23 +199,33 @@ class HealthCheckTypes:  # pylint: disable=too-few-public-methods
 
         return return_dict
 
-    def run_check(self):
+    def run_check(self, include_data_details=False):
         """
         Run the specific check.
+        :param include_data_details: (bool) True to populate the data dictionary with script details, False otherwise.
         :return: (int) The return code of the script.
         """
         return_code = None
         if self._run_script is not None:
             script_output, return_code = HealthCheckUtil.run_command(self._run_script)
+
             if return_code == HealthCheckUtil.SUCCESS:
                 self.set_status(self.status_success())
             else:
                 self.set_status(self.status_failure())
-            self.data["return_code"] = return_code
-            self.data["script_output"] = script_output
+
+            if include_data_details:
+                self._last_return_code = return_code
+                self.data = {"script": {
+                        "output": script_output,
+                        "path": self._run_script,
+                        "return_code": self._last_return_code
+                    }
+                }
+
         else:
             self.set_status(self.status_failure())
-            self.data["msg"] = f"No run script defined for {self.name()} check."
+            self._msg = f"No run script defined for {self.name()} check."
 
         return return_code
 
@@ -200,11 +246,12 @@ class HealthCheckTcp(HealthCheckTypes):
     def __init__(self):
         super().__init__(HCEnum.TCP.value)
 
-    def is_up(self):
+    def is_up(self, include_data_details=False):
         """
+        :param include_data_details: (bool) True to populate the data dictionary with script details, False otherwise.
         :return: (bool) True if the health check status is "up", False otherwise.
         """
-        return self.is_successful()
+        return self.is_successful(include_data_details=include_data_details)
 
 
 class HealthCheckLive(HealthCheckTypes):
@@ -214,13 +261,14 @@ class HealthCheckLive(HealthCheckTypes):
     def __init__(self, run_script=None):
         super().__init__(HCEnum.HTTP_LIVE.value)
         if run_script is not None:
-            self._run_script = run_script
+            self.set_run_script(run_script)
 
-    def is_live(self):
+    def is_live(self, include_data_details=False):
         """
+        :param include_data_details: (bool) True to populate the data dictionary with script details, False otherwise.
         :return: (bool) True if the health check status is "live", False otherwise.
         """
-        return self.is_successful()
+        return self.is_successful(include_data_details=include_data_details)
 
 
 class HealthCheckReady(HealthCheckTypes):
@@ -230,13 +278,14 @@ class HealthCheckReady(HealthCheckTypes):
     def __init__(self, run_script=None):
         super().__init__(HCEnum.HTTP_READY.value)
         if run_script is not None:
-            self._run_script = run_script
+            self.set_run_script(run_script)
 
-    def is_ready(self):
+    def is_ready(self, include_data_details=False):
         """
+        :param include_data_details: (bool) True to populate the data dictionary with script details, False otherwise.
         :return: (bool) True if the health check status is "ready", False otherwise.
         """
-        return self.is_successful()
+        return self.is_successful(include_data_details=include_data_details)
 
 
 class HealthCheckHealth(HealthCheckTypes):
@@ -246,23 +295,14 @@ class HealthCheckHealth(HealthCheckTypes):
     def __init__(self, run_script=None):
         super().__init__(HCEnum.HTTP_HEALTH.value)
         if run_script is not None:
-            self._run_script = run_script
+            self.set_run_script(run_script)
 
-    def is_healthy(self):
+    def is_healthy(self, include_data_details=False):
         """
+        :param include_data_details: (bool) True to populate the data dictionary with script details, False otherwise.
         :return: (bool) True if the health check status is "healthy", False otherwise.
         """
-        return self.is_successful()
-
-    def get_status_dict(self):
-        """
-        This extends the base class method by adding the data to the return dict.
-        :return: (dict) The current status of the health check including any data.
-        """
-        return_dict = super().get_status_dict()
-        if self.data:
-            return_dict["data"] = self.data
-        return return_dict
+        return self.is_successful(include_data_details=include_data_details)
 
 
 class HealthCheckFavicon(HealthCheckTypes):
