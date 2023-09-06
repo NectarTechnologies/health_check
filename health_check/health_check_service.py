@@ -7,8 +7,10 @@ TODO: Implement a cli flag to specify a config file that contains the IP address
 TODO: Implement config file that specifies the external scripts to run for "live", "ready", and "health" checks.
 TODO: Once the config file is implemented, update the "live", "ready", and "health" checks to use the config file.
 TODO: Implement logging to a file in addition to the stdout (default to /var/blah-blah-blah.log).
+TODO: Implement log rotation so log files do not fill the disk.
 TODO: Implement a cli flag to specify the log file name and path.
 TODO: Implement custom health checks (project specific).
+TODO: Implement a "push" mode where the service will push the health check status to a remote server.
 """
 
 import os
