@@ -5,7 +5,7 @@ After=network.service
 Type=oneshot
 RemainAfterExit=yes
 ExecStart=/usr/bin/tmux new-session -d -s health_check_service
-ExecStart=/usr/bin/tmux send-keys -t health_check_service "cd /opt/health_check_service/" "Enter" "python3 health_check_service.py" "Enter"
+ExecStart=/usr/bin/tmux send-keys -t health_check_service "cd /opt/health_check/" "Enter" "python3 health_check_service.py" "Enter"
 ExecStop=/usr/bin/tmux kill-session -t health_check_service
 
 [Install]
