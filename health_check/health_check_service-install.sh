@@ -5,7 +5,7 @@
 
 SCRIPT_PATH=$(cd "$(dirname "${0}")" && pwd)
 SCRIPT_NAME=$(basename "${0}")
-VERSION="1.1"
+VERSION="1.2"
 COPYRIGHT_YEAR=$(date +%Y)
 SERVICE_DISPLAY_NAME="Health Check Service"
 SERVICE_NAME="health_check"
@@ -37,10 +37,7 @@ check_dir "${CONF_DIR}/"
 
 echo "Coping ${SERVICE_DISPLAY_NAME} files"
 cp ${SCRIPT_PATH}/${SERVICE_NAME}.service /etc/systemd/system/${SERVICE_NAME}.service
-cp ${SCRIPT_PATH}/health_check_service.py ${INSTALL_DIR}/
-cp ${SCRIPT_PATH}/health_check_client.py ${INSTALL_DIR}/
-cp ${SCRIPT_PATH}/health_check_types.py ${INSTALL_DIR}/
-cp ${SCRIPT_PATH}/health_check_types_enum.py ${INSTALL_DIR}/
+cp ${SCRIPT_PATH}/health_check*.py ${INSTALL_DIR}/
 cp ${SCRIPT_PATH}/favicon.ico ${INSTALL_DIR}/
 cp ${SCRIPT_PATH}/${CONF_FILE_NAME} ${CONF_DIR}/
 
