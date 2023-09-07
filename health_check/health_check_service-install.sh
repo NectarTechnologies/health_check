@@ -5,12 +5,12 @@
 
 SCRIPT_PATH=$(cd "$(dirname "${0}")" && pwd)
 SCRIPT_NAME=$(basename "${0}")
-VERSION="1.3"
+VERSION="1.4"
 COPYRIGHT_YEAR=$(date +%Y)
 SERVICE_DISPLAY_NAME="Health Check Service"
 SERVICE_NAME="health_check"
-INSTALL_DIR="/opt/${SERVICE_NAME}_service"
-CONF_DIR="/etc/${SERVICE_NAME}_service"
+INSTALL_DIR="/opt/${SERVICE_NAME}"
+CONF_DIR="/etc/${SERVICE_NAME}"
 CONF_FILE_NAME="${SERVICE_NAME}.conf"
 
 function check_dir() {
