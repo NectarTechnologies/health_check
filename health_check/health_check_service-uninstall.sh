@@ -5,12 +5,12 @@
 
 SCRIPT_PATH=$(cd "$(dirname "${0}")" && pwd)
 SCRIPT_NAME=$(basename "${0}")
-VERSION="1.1"
+VERSION="1.2"
 COPYRIGHT_YEAR=$(date +%Y)
 SERVICE_DISPLAY_NAME="Health Check Service"
 SERVICE_NAME="health_check"
-INSTALL_DIR="/opt/${SERVICE_NAME}_service"
-CONF_DIR="/etc/${SERVICE_NAME}_service"
+INSTALL_DIR="/opt/${SERVICE_NAME}"
+CONF_DIR="/etc/${SERVICE_NAME}"
 
 echo "----------------------------------------------------------------------"
 echo " ${SERVICE_DISPLAY_NAME} uninstaller"
