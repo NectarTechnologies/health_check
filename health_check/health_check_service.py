@@ -3,13 +3,9 @@
 Simple, lightweight service to allow for TCP and HTTP health checks and additional custom checks.
 Primarily used for health checks of microservices inside containers but can be used for any health check on a server.
 
-TODO: Implement a cli flag to specify a config file that contains the IP address, TCP port, and retry count.
-TODO: Implement config file that specifies the external scripts to run for "live", "ready", and "health" checks.
-TODO: Once the config file is implemented, update the "live", "ready", and "health" checks to use the config file.
 TODO: Implement logging to a file in addition to the stdout (default to /var/blah-blah-blah.log).
 TODO: Implement log rotation so log files do not fill the disk.
 TODO: Implement a cli flag to specify the log file name and path.
-TODO: Implement custom health checks (project specific).
 TODO: Implement a "push" mode where the service will push the health check status to a remote server.
 """
 
@@ -20,6 +16,7 @@ import argparse
 import traceback
 import json
 import platform
+import configparser
 
 from datetime import datetime, timezone, date  # pylint: disable=import-error,wrong-import-order
 from time import sleep  # pylint: disable=import-error,wrong-import-order
@@ -34,15 +31,23 @@ from health_check_util import LogLevel  # pylint: disable=import-error,wrong-imp
 class HealthCheckService:  # pylint: disable=too-many-instance-attributes
     """
     Simple service to allow for TCP and HTTP health checks.
+
+    Order of precedence for setting the variables:
+            1. Command line argument
+            2. Passed in argument
+            3. Config file
+            4. Default values
     """
 
     # Constants.
-    _VERSION = "1.47"
+    _VERSION = "1.48"
     _current_year = date.today().year
     _copyright = f"(C) {_current_year}"
     _service_name = "Health Check Service"
     shutdown_msg = f"{_service_name} shutting down."
     http_header_delimiter = b"\r\n"
+    CONFIG_FILE_NAME = "health_check.conf"
+    DEFAULT_CONFIG_FILE = os.path.join("/etc", "health_check", CONFIG_FILE_NAME)
 
     # Variables that can be passed into __init__().
     ip_addr = '0.0.0.0'
@@ -60,10 +65,12 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
     ready_check_script = None  # path to ready check script
     health_check_script = None  # path to health check script
     include_data_details = None  # include data details in the health check script responses
+    config_file = None
+    config = None
 
     def __init__(self,  # pylint: disable=too-many-branches,too-many-statements,too-many-arguments
-                 ip_addr=None, port=None, retry_count=None, live_check_script=None, ready_check_script=None,
-                 health_check_script=None, include_data_details=False):
+                 ip_addr=None, port=None, retry_count=None, log_level=None, live_check_script=None,
+                 ready_check_script=None, health_check_script=None, include_data_details=False, config_file=None):
         """
         Constructor.
 
@@ -72,6 +79,8 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
         :param port: (int) The TCP port to listen on. Default is 5757.
 
         :param retry_count: (int) The number of times to retry starting the service. Default is 5.
+
+        :param log_level: (str) Logging level. Values: DEBUG, INFO, WARNING, ERROR. Default: INFO.
 
         :param live_check_script: (str) Path to local script to run to check "live" status. Script return code must
             return zero for "live" and non-zero for "not live". Any stdout or stderr output will be returned in the
@@ -86,34 +95,15 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
             the "msg" string.
 
         :param include_data_details: (bool) If True, then include data details in the health check script responses.
+
+        :param config_file: (str) Path to the config file.
         """
 
         super().__init__()
 
         self._log_level_name_max_length = self.find_len_of_longest_log_level_name()
 
-        if ip_addr is not None:
-            self.ip_addr = ip_addr
-
-        if port is not None:
-            self.port = port
-
-        if retry_count is not None:
-            self.retry_count = retry_count
-
-        if live_check_script is not None:
-            self.live_check_script = live_check_script
-
-        if ready_check_script is not None:
-            self.ready_check_script = ready_check_script
-
-        if health_check_script is not None:
-            self.health_check_script = health_check_script
-
-        if include_data_details is not None:
-            self.include_data_details = include_data_details
-
-        parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
+        parser = argparse.ArgumentParser(add_help=True, formatter_class=argparse.RawTextHelpFormatter)
 
         parser.add_argument('-v', '--version', dest='show_version', action="store_true",
                             default=False, help='Show version.\n')
@@ -148,63 +138,177 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
                                                 'in the incoming HTTP request URL. Example:\n'
                                                 '    http://1.2.3.4:5757/ready?include_data_details=true\n')
 
+        parser.add_argument('--config_file', dest='config_file', action="append",
+                            help='Path to the config file. If none is specified then the service will \n'
+                                 'search for a config file in the following locations starting with \n'
+                                 'the top path first:\n'
+                                 f'    {self.DEFAULT_CONFIG_FILE}\n'
+                                 f'    {os.path.abspath(__file__)}/{self.CONFIG_FILE_NAME}\n')
+
         try:
             self.options, _ = parser.parse_known_args(sys.argv[:])
         except Exception as exc:  # pylint: disable=broad-except
             self._log(msg=f"Encountered unknown exception: {exc}", level=LogLevel.ERROR, indent_level=0)
             sys.exit(1)
 
-        if self.options.log_level is not None:
-            if "DEBUG" in self.options.log_level:
-                self.log_level_default = LogLevel.DEBUG
-            elif "INFO" in self.options.log_level:
-                self.log_level_default = LogLevel.INFO
-            elif "WARNING" in self.options.log_level:
-                self.log_level_default = LogLevel.WARNING
-            elif "ERROR" in self.options.log_level:
-                self.log_level_default = LogLevel.ERROR
-            else:
-                self.log_level_default = LogLevel.INFO
-
-        if self.options.ip_addr is not None:
-            self.ip_addr = self.options.ip_addr[0]
-
-        if self.options.port is not None:
-            self.port = int(self.options.port[0])
-
-        if self.options.live_check_script is not None:
-            self.live_check_script = self.options.live_check_script[0]
-
-        if self.options.ready_check_script is not None:
-            self.ready_check_script = self.options.ready_check_script[0]
-
-        if self.options.health_check_script is not None:
-            self.health_check_script = self.options.health_check_script[0]
-
         if self.options.show_version:
             self.show_banner()
             sys.exit(0)
 
+        if self.options.config_file is not None:
+            self.config_file = os.path.abspath(self.options.config_file[0])
+        else:
+            if config_file is not None:
+                self.config_file = os.path.abspath(config_file)
+            else:
+                _config_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), self.CONFIG_FILE_NAME)
+                if os.path.isfile(_config_file):
+                    self.config_file = _config_file
+                else:
+                    if os.path.isfile(os.path.abspath(self.DEFAULT_CONFIG_FILE)):
+                        self.config_file = os.path.abspath(self.DEFAULT_CONFIG_FILE)
+                    else:
+                        self.config_file = None
+
+        # pylint: disable=too-many-nested-blocks,too-many-boolean-expressions
+        if self.config_file and os.path.isfile(self.config_file) and os.access(self.config_file, os.R_OK):
+            self.config = configparser.ConfigParser()
+            self.config.read(self.config_file)
+            self.process_config_params()
+        else:
+            self._log(msg=f'Config file [{self.config_file}] does not exist or cannot be read.',
+                      level=LogLevel.WARNING)
+            self._log(msg='Attempting to run with default parameters.', level=LogLevel.WARNING)
+
+        if self.options.log_level is not None:
+            if "DEBUG" in self.options.log_level[0].upper():
+                self.log_level_default = LogLevel.DEBUG
+            elif "INFO" in self.options.log_level[0].upper():
+                self.log_level_default = LogLevel.INFO
+            elif "WARNING" in self.options.log_level[0].upper():
+                self.log_level_default = LogLevel.WARNING
+            elif "ERROR" in self.options.log_level[0].upper():
+                self.log_level_default = LogLevel.ERROR
+            else:
+                self.log_level_default = LogLevel.INFO
+        else:
+            if log_level is not None:
+                if "DEBUG" in log_level:
+                    self.log_level_default = LogLevel.DEBUG
+                elif "INFO" in log_level:
+                    self.log_level_default = LogLevel.INFO
+                elif "WARNING" in log_level:
+                    self.log_level_default = LogLevel.WARNING
+                elif "ERROR" in log_level:
+                    self.log_level_default = LogLevel.ERROR
+                else:
+                    self.log_level_default = LogLevel.INFO
+
+        if self.options.ip_addr is not None:
+            self.ip_addr = self.options.ip_addr[0]
+        else:
+            if ip_addr is not None:
+                self.ip_addr = ip_addr
+
+        if self.options.port is not None:
+            self.port = int(self.options.port[0])
+        else:
+            if port is not None:
+                self.port = port
+
+        if retry_count is not None:
+            self.retry_count = retry_count
+
+        if self.options.live_check_script is not None:
+            self.live_check_script = self.options.live_check_script[0]
+        else:
+            if live_check_script is not None:
+                self.live_check_script = live_check_script
         if self.live_check_script is not None:
             if not os.path.isfile(os.path.abspath(self.live_check_script)):
-                self._log(msg=f'Live check script "{self.live_check_script}" does not exist.',
+                self._log(msg=f'Specified LIVE check script "{self.live_check_script}" does not exist.',
                           level=LogLevel.ERROR)
                 sys.exit(1)
 
+        if self.options.ready_check_script is not None:
+            self.ready_check_script = self.options.ready_check_script[0]
+        else:
+            if ready_check_script is not None:
+                self.ready_check_script = ready_check_script
         if self.ready_check_script is not None:
             if not os.path.isfile(os.path.abspath(self.ready_check_script)):
-                self._log(msg=f'Ready check script "{self.ready_check_script}" does not exist.',
+                self._log(msg=f'Specified READY check script "{self.ready_check_script}" does not exist.',
                           level=LogLevel.ERROR)
                 sys.exit(1)
 
+        if self.options.health_check_script is not None:
+            self.health_check_script = self.options.health_check_script[0]
+        else:
+            if health_check_script is not None:
+                self.health_check_script = health_check_script
         if self.health_check_script is not None:
             if not os.path.isfile(os.path.abspath(self.health_check_script)):
-                self._log(msg=f'Health check script "{self.health_check_script}" does not exist.',
+                self._log(msg=f'Specified HEALTH check script "{self.health_check_script}" does not exist.',
                           level=LogLevel.ERROR)
                 sys.exit(1)
+
+        if self.options.include_data_details is not None:
+            self.include_data_details = self.options.include_data_details
+        else:
+            if include_data_details is not None:
+                self.include_data_details = include_data_details
 
         if self.options.include_data_details:
             self.include_data_details = True
+
+    def process_config_params(self):  # pylint: disable=too-many-branches
+        """
+        Update class variables with values from the config file.
+        """
+        # Update class variables with values from the config file. Use the class name as the section name.
+        if self.config.has_section(self.__class__.__name__):
+            for key, value in self.config[self.__class__.__name__].items():
+                if key == "ip_addr":
+                    self.ip_addr = value
+                elif key == "port":
+                    self.port = int(value)
+                elif key == "retry_count":
+                    self.retry_count = int(value)
+                elif key == "retry_wait_time":
+                    self.retry_wait_time = int(value)
+                elif key == "log_level":
+                    if "DEBUG" in value.upper():
+                        self.log_level_default = LogLevel.DEBUG
+                    elif "INFO" in value.upper():
+                        self.log_level_default = LogLevel.INFO
+                    elif "WARNING" in value.upper():
+                        self.log_level_default = LogLevel.WARNING
+                    elif "ERROR" in value.upper():
+                        self.log_level_default = LogLevel.ERROR
+                    else:
+                        self.log_level_default = LogLevel.INFO
+                elif key == "live_check_script":
+                    if value == 'None':
+                        self.live_check_script = None
+                    else:
+                        self.live_check_script = value
+                elif key == "ready_check_script":
+                    if value == 'None':
+                        self.ready_check_script = None
+                    else:
+                        self.ready_check_script = value
+                elif key == "health_check_script":
+                    if value == 'None':
+                        self.health_check_script = None
+                    else:
+                        self.health_check_script = value
+                elif key == "include_data_details":
+                    if "true" in value.lower():
+                        self.include_data_details = True
+                    else:
+                        self.include_data_details = False
+                else:
+                    self._log(msg=f'Unknown config file parameter "{key}"', level=LogLevel.WARNING)
 
     @staticmethod
     def find_len_of_longest_log_level_name():
@@ -592,6 +696,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
         """
         self.show_banner()
 
+        self._log(msg=f"Config file: {self.config_file}", indent_level=0, show_prefix=False)
         self._log(msg=f"Log level: {self.log_level_default.value[1]}", indent_level=0, show_prefix=False)
 
         self.show_health_check_scripts()

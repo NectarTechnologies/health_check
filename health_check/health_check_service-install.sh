@@ -5,11 +5,13 @@
 
 SCRIPT_PATH=$(cd "$(dirname "${0}")" && pwd)
 SCRIPT_NAME=$(basename "${0}")
-VERSION="1.0"
+VERSION="1.1"
 COPYRIGHT_YEAR=$(date +%Y)
 SERVICE_DISPLAY_NAME="Health Check Service"
 SERVICE_NAME="health_check"
 INSTALL_DIR="/opt/${SERVICE_NAME}_service"
+CONF_DIR="/etc/${SERVICE_NAME}_service"
+CONF_FILE_NAME="${SERVICE_NAME}.conf"
 
 function check_dir() {
     DIR="${1}"
@@ -31,6 +33,7 @@ if [ "$EUID" -ne 0 ]
 fi
 
 check_dir "${INSTALL_DIR}/"
+check_dir "${CONF_DIR}/"
 
 echo "Coping ${SERVICE_DISPLAY_NAME} files"
 cp ${SCRIPT_PATH}/${SERVICE_NAME}.service /etc/systemd/system/${SERVICE_NAME}.service
@@ -39,9 +42,11 @@ cp ${SCRIPT_PATH}/health_check_client.py ${INSTALL_DIR}/
 cp ${SCRIPT_PATH}/health_check_types.py ${INSTALL_DIR}/
 cp ${SCRIPT_PATH}/health_check_types_enum.py ${INSTALL_DIR}/
 cp ${SCRIPT_PATH}/favicon.ico ${INSTALL_DIR}/
+cp ${SCRIPT_PATH}/${CONF_FILE_NAME} ${CONF_DIR}/
 
 echo "Setting ${SERVICE_DISPLAY_NAME} permissions"
-chmod 664 /etc/systemd/system/${SERVICE_NAME}.service
+chmod 644 /etc/systemd/system/${SERVICE_NAME}.service
+chmod 644 ${CONF_DIR}/${CONF_FILE_NAME}
 
 echo "Enabling the ${SERVICE_DISPLAY_NAME} to start automatically at boot"
 systemctl daemon-reload

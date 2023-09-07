@@ -7,47 +7,42 @@ TODO: Implement logging to a file in addition to the stdout (default to /var/bla
 TODO: Implement a cli flag to specify the log file name and path.
 """
 
+import os
 import sys
 import socket
 import argparse
 import traceback
 import json
+import configparser
 
 from datetime import datetime, timezone, date  # pylint: disable=import-error,wrong-import-order
 from time import sleep  # pylint: disable=import-error,wrong-import-order
-from enum import Enum
 from health_check_types import (HealthCheckVersion, HealthCheckTcp,  # pylint: disable=import-error,wrong-import-order
                                 HealthCheckLive, HealthCheckReady, HealthCheckHealth, HealthCheckFavicon)
 from health_check_types_enum import HealthCheckTypesEnum as HCEnum  # pylint: disable=import-error,wrong-import-order
-
-
-class LogLevel(Enum):  # pylint: disable=too-few-public-methods
-    """
-    Log levels. Used to control the verbosity of the log output.
-    Order of log levels from highest to least verbose (top is most verbose):
-        DEBUG
-        INFO
-        WARNING
-        ERROR
-    """
-    DEBUG = 1, 'DEBUG'
-    INFO = 2, 'INFO'
-    WARNING = 3, 'WARNING'
-    ERROR = 4, 'ERROR'
+from health_check_util import LogLevel  # pylint: disable=import-error,wrong-import-order
 
 
 class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
     """
     Simple client that calls the health_check_service API TCP and HTTP health checks.
+
+    Order of precedence for setting the variables:
+            1. Command line argument
+            2. Passed in argument
+            3. Config file
+            4. Default values
     """
 
     # Constants.
-    _VERSION = "1.18"
+    _VERSION = "1.22"
     _current_year = date.today().year
     _copyright = f"(C) {_current_year}"
     _service_name = "Health Check Client"
     shutdown_msg = f"{_service_name} shutting down."
     http_header_delimiter = b"\r\n"
+    CONFIG_FILE_NAME = "health_check.conf"
+    DEFAULT_CONFIG_FILE = f"/etc/health_check/{CONFIG_FILE_NAME}"
 
     # Variables that can be passed into __init__().
     server_host = None
@@ -70,35 +65,37 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
     options = None  # command line options
     sock = None  # socket
     _current_health_check_type = HCEnum.TCP  # Default to TCP health check.
+    include_data_details = None  # include data details in the health check script responses
+    config_file = DEFAULT_CONFIG_FILE
 
     retryable_errors = (
         socket.error,
         socket.gaierror
     )
 
-    def __init__(self,  # pylint: disable=too-many-branches,too-many-statements,too-many-arguments
+    def __init__(self,  # pylint: disable=too-many-branches,too-many-statements,too-many-arguments,too-many-locals
                  server_host=None,
                  server_port=None,
                  retry_count=None,
+                 log_level=None,
                  check_tcp=None,
                  check_http_live=None,
                  check_http_ready=None,
                  check_http_health=None,
                  check_favicon=None,
-                 check_server_version=None):
+                 check_server_version=None,
+                 include_data_details=None,
+                 config_file=None):
         """
         Constructor.
-
-        Order of precedence for setting the variables:
-            1. Command line argument
-            2. Passed in argument
-            3. Default value
 
         :param server_host: (str) The IP address of the server to connect to.
 
         :param server_port: (int) The TCP port of the server to connect to.
 
         :param retry_count: (int) The number of times to retry connecting to server.
+
+        :param log_level: (str) Logging level. Values: DEBUG, INFO, WARNING, ERROR. Default: INFO.
 
         :param check_tcp: (bool) If True, then check that the TCP port of the server can be connected to.
             Default is True.
@@ -129,14 +126,18 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
 
         :param check_server_version: (bool) If True, then check the version returned the HTTP endpoint "/version".
             Default is False.
+
+        :param include_data_details: (bool) If True, then include data details of the health check script(s) in the
+            health check responses.
+
+        :param config_file: (str) Path to the config file.
         """
 
         super().__init__()
 
         self._log_level_name_max_length = self.find_len_of_longest_log_level_name()
 
-        parser = argparse.ArgumentParser(add_help=True,
-                                         formatter_class=argparse.RawTextHelpFormatter)
+        parser = argparse.ArgumentParser(add_help=True, formatter_class=argparse.RawTextHelpFormatter)
 
         parser.add_argument('-v', '--version', dest='show_version', action="store_true",
                             default=False,
@@ -178,6 +179,19 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
                             default=None,
                             help='If True, then check that the HTTP endpoint "/health" returns "HEALTHY".\n')
 
+        parser.add_argument('--include_data_details', dest='include_data_details', action="store_true",
+                            default=False, help='Include data details of the health check script(s) in the health \n'
+                                                'check responses. Can also be controlled via a query string \n'
+                                                'in the incoming HTTP request URL. Example:\n'
+                                                '    http://1.2.3.4:5757/ready?include_data_details=true\n')
+
+        parser.add_argument('--config_file', dest='config_file', action="append",
+                            help='Path to the config file. If none is specified then the service will \n'
+                                 'search for a config file in the following locations starting with \n'
+                                 'the top path first:\n'
+                                 f'    {self.DEFAULT_CONFIG_FILE}\n'
+                                 f'    {os.path.abspath(__file__)}/{self.CONFIG_FILE_NAME}\n')
+
         try:
             self.options, _ = parser.parse_known_args(sys.argv[:])
         except Exception as exc:  # pylint: disable=broad-except
@@ -185,23 +199,60 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
             sys.exit(1)
 
         if self.options.show_version:
-            self._log(msg="==========================================================================")
-            self._log(msg=f" {self._service_name} v{self._VERSION}")
-            self._log(msg=f" {self._copyright}")
-            self._log(msg="==========================================================================")
+            self.show_banner()
             sys.exit(0)
 
+        if self.options.config_file is not None:
+            self.config_file = os.path.abspath(self.options.config_file[0])
+        else:
+            if config_file is not None:
+                self.config_file = os.path.abspath(config_file)
+            else:
+                _config_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), self.CONFIG_FILE_NAME)
+                if os.path.isfile(_config_file):
+                    self.config_file = _config_file
+                else:
+                    if os.path.isfile(os.path.abspath(self.DEFAULT_CONFIG_FILE)):
+                        self.config_file = os.path.abspath(self.DEFAULT_CONFIG_FILE)
+                    else:
+                        self.config_file = None
+
+        # pylint: disable=too-many-nested-blocks,too-many-boolean-expressions
+        if self.config_file and os.path.isfile(self.config_file) and os.access(self.config_file, os.R_OK):
+            self.config = configparser.ConfigParser()
+            self.config.read(self.config_file)
+            self.process_config_params()
+        else:
+            self._log(msg=f'Config file [{self.config_file}] does not exist or cannot be read.',
+                      level=LogLevel.WARNING)
+            self._log(msg='Attempting to run with default parameters.', level=LogLevel.WARNING)
+
         if self.options.log_level is not None:
-            if "DEBUG" in self.options.log_level:
+            if "DEBUG" in self.options.log_level[0].upper():
                 self.log_level_default = LogLevel.DEBUG
-            elif "INFO" in self.options.log_level:
+            elif "INFO" in self.options.log_level[0].upper():
                 self.log_level_default = LogLevel.INFO
-            elif "WARNING" in self.options.log_level:
+            elif "WARNING" in self.options.log_level[0].upper():
                 self.log_level_default = LogLevel.WARNING
-            elif "ERROR" in self.options.log_level:
+            elif "ERROR" in self.options.log_level[0].upper():
                 self.log_level_default = LogLevel.ERROR
             else:
                 self.log_level_default = LogLevel.INFO
+        else:
+            if log_level is not None:
+                if "DEBUG" in log_level.upper():
+                    self.log_level_default = LogLevel.DEBUG
+                elif "INFO" in log_level.upper():
+                    self.log_level_default = LogLevel.INFO
+                elif "WARNING" in log_level.upper():
+                    self.log_level_default = LogLevel.WARNING
+                elif "ERROR" in log_level.upper():
+                    self.log_level_default = LogLevel.ERROR
+                else:
+                    self.log_level_default = LogLevel.INFO
+
+        if self.log_level_default == LogLevel.DEBUG:
+            self.show_banner()
 
         if self.options.server_host is not None:
             self.server_host = self.options.server_host[0]
@@ -258,6 +309,12 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
             if check_server_version is not None:
                 self.check_server_version = check_server_version
 
+        if self.options.include_data_details is not None:
+            self.include_data_details = self.options.include_data_details
+        else:
+            if include_data_details is not None:
+                self.include_data_details = include_data_details
+
         # If all health check types are False, then default to TCP health check.
         # pylint: disable=too-many-boolean-expressions
         if not self.check_tcp and \
@@ -267,6 +324,49 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
             not self.check_server_version and \
             not self.check_favicon:
             self.check_tcp = True
+
+    def show_banner(self):
+        """
+        Shows the banner.
+        """
+        self._log(msg="==========================================================================")
+        self._log(msg=f" {self._service_name} v{self._VERSION}")
+        self._log(msg=f" {self._copyright}")
+        self._log(msg="==========================================================================")
+
+    def process_config_params(self):  # pylint: disable=too-many-branches
+        """
+        Update class variables with values from the config file.
+        """
+        # Update class variables with values from the config file. Use the class name as the section name.
+        if self.config.has_section(self.__class__.__name__):
+            for key, value in self.config[self.__class__.__name__].items():
+                if key == "server_host":
+                    self.server_host = value
+                elif key == "server_port":
+                    self.server_port = int(value)
+                elif key == "retry_count":
+                    self.retry_count = int(value)
+                elif key == "retry_wait_time":
+                    self.retry_wait_time = int(value)
+                elif key == "log_level":
+                    if "DEBUG" in value.upper():
+                        self.log_level_default = LogLevel.DEBUG
+                    elif "INFO" in value.upper():
+                        self.log_level_default = LogLevel.INFO
+                    elif "WARNING" in value.upper():
+                        self.log_level_default = LogLevel.WARNING
+                    elif "ERROR" in value.upper():
+                        self.log_level_default = LogLevel.ERROR
+                    else:
+                        self.log_level_default = LogLevel.INFO
+                elif key == "include_data_details":
+                    if "true" in value.lower():
+                        self.include_data_details = True
+                    else:
+                        self.include_data_details = False
+                else:
+                    self._log(msg=f'Unknown config file parameter "{key}"', level=LogLevel.WARNING)
 
     @staticmethod
     def find_len_of_longest_log_level_name():
@@ -341,6 +441,15 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
         except socket.error:
             return False
 
+    def build_query_string(self):
+        """
+        Builds the query string to be appended to the HTTP request.
+        :return: (byte array) The query string to be appended to the HTTP request.
+        """
+        if self.include_data_details:
+            return b'?include_data_details=true'
+        return b''
+
     def do_health_check(self):  # pylint: disable=too-many-branches,too-many-statements,too-many-locals
         """
         Perform a specific health check.
@@ -403,7 +512,8 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
 
             # Build HTTP request header.
             http_header = \
-                http_header_request_method + http_header_request_endpoint + http_header_request_version + \
+                http_header_request_method + http_header_request_endpoint + self.build_query_string() + \
+                http_header_request_version + \
                 http_header_cache_control + \
                 http_header_accept_encoding + \
                 http_header_request_host + \
