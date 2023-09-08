@@ -40,7 +40,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
     """
 
     # Constants.
-    _VERSION = "1.48"
+    _VERSION = "1.53"
     _current_year = date.today().year
     _copyright = f"(C) {_current_year}"
     _service_name = "Health Check Service"
@@ -48,10 +48,11 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
     http_header_delimiter = b"\r\n"
     CONFIG_FILE_NAME = "health_check.conf"
     DEFAULT_CONFIG_FILE = os.path.join("/etc", "health_check", CONFIG_FILE_NAME)
+    INSTALL_DIR = os.path.dirname(os.path.abspath(__file__))
 
     # Variables that can be passed into __init__().
-    ip_addr = '0.0.0.0'
-    port = 5757
+    listen_ip = '0.0.0.0'
+    listen_port = 5757
     retry_count = 5  # number of times to retry starting the service
 
     # Internal variables.
@@ -67,16 +68,18 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
     include_data_details = None  # include data details in the health check script responses
     config_file = None
     config = None
+    favicon_path = f"{INSTALL_DIR}/favicon.ico"  # Default, but can get overwritten by config file or passed in param.
 
     def __init__(self,  # pylint: disable=too-many-branches,too-many-statements,too-many-arguments
-                 ip_addr=None, port=None, retry_count=None, log_level=None, live_check_script=None,
-                 ready_check_script=None, health_check_script=None, include_data_details=False, config_file=None):
+                 listen_ip=None, listen_port=None, retry_count=None, log_level=None, live_check_script=None,
+                 ready_check_script=None, health_check_script=None, include_data_details=False, config_file=None,
+                 favicon_path=None):
         """
         Constructor.
 
-        :param ip_addr: (str) The IP address to bind to. Default is 0.0.0.0 (all IP addresses).
+        :param listen_ip: (str) The IP address to bind to. Default is 0.0.0.0 (all IP addresses).
 
-        :param port: (int) The TCP port to listen on. Default is 5757.
+        :param listen_port: (int) The TCP listen_port to listen on. Default is 5757.
 
         :param retry_count: (int) The number of times to retry starting the service. Default is 5.
 
@@ -97,6 +100,8 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
         :param include_data_details: (bool) If True, then include data details in the health check script responses.
 
         :param config_file: (str) Path to the config file.
+
+        :param favicon_path: (str) The path to the favicon.ico file to use for the health check service.
         """
 
         super().__init__()
@@ -108,13 +113,13 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
         parser.add_argument('-v', '--version', dest='show_version', action="store_true",
                             default=False, help='Show version.\n')
 
-        parser.add_argument('-l', '--log-level', dest='log_level', action="append",
+        parser.add_argument('-l', '--log_level', dest='log_level', action="append",
                             help="Logging level. Values: DEBUG, INFO, WARNING, ERROR. Default: INFO.\n")
 
-        parser.add_argument('-i', '--ip-address', dest='ip_addr', action="append",
+        parser.add_argument('-i', '--listen_ip', dest='listen_ip', action="append",
                             help='IP address to bind to. Default is "0.0.0.0" (all IP addresses).\n')
 
-        parser.add_argument('-p', '--port', dest='port', action="append",
+        parser.add_argument('-p', '--listen_port', dest='listen_port', action="append",
                             help='TCP port to listen on. Default is TCP port "5757"\n')
 
         parser.add_argument('--live_check_script', dest='live_check_script', action="append",
@@ -143,7 +148,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
                                  'search for a config file in the following locations starting with \n'
                                  'the top path first:\n'
                                  f'    {self.DEFAULT_CONFIG_FILE}\n'
-                                 f'    {os.path.abspath(__file__)}/{self.CONFIG_FILE_NAME}\n')
+                                 f'    {os.path.dirname(os.path.abspath(__file__))}/{self.CONFIG_FILE_NAME}\n')
 
         try:
             self.options, _ = parser.parse_known_args(sys.argv[:])
@@ -204,17 +209,17 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
                 else:
                     self.log_level_default = LogLevel.INFO
 
-        if self.options.ip_addr is not None:
-            self.ip_addr = self.options.ip_addr[0]
+        if self.options.listen_ip is not None:
+            self.listen_ip = self.options.listen_ip[0]
         else:
-            if ip_addr is not None:
-                self.ip_addr = ip_addr
+            if listen_ip is not None:
+                self.listen_ip = listen_ip
 
-        if self.options.port is not None:
-            self.port = int(self.options.port[0])
+        if self.options.listen_port is not None:
+            self.listen_port = int(self.options.listen_port[0])
         else:
-            if port is not None:
-                self.port = port
+            if listen_port is not None:
+                self.listen_port = listen_port
 
         if retry_count is not None:
             self.retry_count = retry_count
@@ -261,6 +266,9 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
         if self.options.include_data_details:
             self.include_data_details = True
 
+        if favicon_path is not None:
+            self.favicon_path = favicon_path
+
     def process_config_params(self):  # pylint: disable=too-many-branches
         """
         Update class variables with values from the config file.
@@ -268,10 +276,10 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
         # Update class variables with values from the config file. Use the class name as the section name.
         if self.config.has_section(self.__class__.__name__):
             for key, value in self.config[self.__class__.__name__].items():
-                if key == "ip_addr":
-                    self.ip_addr = value
-                elif key == "port":
-                    self.port = int(value)
+                if key == "listen_ip":
+                    self.listen_ip = value
+                elif key == "listen_port":
+                    self.listen_port = int(value)
                 elif key == "retry_count":
                     self.retry_count = int(value)
                 elif key == "retry_wait_time":
@@ -307,6 +315,8 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
                         self.include_data_details = True
                     else:
                         self.include_data_details = False
+                elif key == "favicon_path":
+                    self.favicon_path = value
                 else:
                     self._log(msg=f'Unknown config file parameter "{key}"', level=LogLevel.WARNING)
 
@@ -396,6 +406,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
         hc_version.set_status(hc_version.status_success())
         hc_version.data["service_name"] = HealthCheckService._service_name
         hc_version.data["version"] = HealthCheckService._VERSION
+        hc_version.add_timestamp()
         return hc_version
 
     def do_tcp_check(self):
@@ -703,7 +714,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
 
         self._log(msg="", indent_level=0, show_prefix=False)
         self._log(msg=f"Service listening on: "
-                      f"{self.ip_addr}:{self.port} (TCP)", indent_level=0)
+                      f"{self.listen_ip}:{self.listen_port} (TCP)", indent_level=0)
 
         while self.current_try_count < self.retry_count:
             try:
@@ -712,7 +723,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
                 # Create a TCP/IP socket
                 self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                self.sock.bind((self.ip_addr, self.port))
+                self.sock.bind((self.listen_ip, self.listen_port))
                 self.sock.listen(1)
                 self.health_check_service_run_loop()
                 break
@@ -742,7 +753,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
 
         if self.current_try_count > self.retry_count:
             self._log(msg=f"Unable to start {self._service_name} on "
-                          f"{self.ip_addr} port {self.port}",
+                          f"{self.listen_ip} port {self.listen_port}",
                       level=LogLevel.ERROR, indent_level=0)
             return
 

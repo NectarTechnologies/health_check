@@ -1,0 +1,192 @@
+#!/bin/bash
+
+SCRIPT_NAME=$(basename "${0}")
+VERSION="1.29"
+SERVICE_DISPLAY_NAME="Health Check Service"
+SERVICE_NAME="health_check"
+TMUX_SESSION_NAME="${SERVICE_NAME}_service"
+CONF_FILE_NAME="${SERVICE_NAME}.conf"
+CONF_DIR="/etc/${SERVICE_NAME}"
+INSTALL_DIR="/opt/${SERVICE_NAME}"
+LOG_DIR="${INSTALL_DIR}/log"
+LOG="${LOG_DIR}/${SERVICE_NAME}.log"
+SERVICE_CONF_DIR="/etc/init.d"
+SERVICE_PYTHON_FILE_NAME="${SERVICE_NAME}_service.py"
+MSG_RUNNING="${SERVICE_DISPLAY_NAME} is running."
+MSG_NOT_RUNNING="${SERVICE_DISPLAY_NAME} is not running."
+
+function tmux_session_exists() {
+    if tmux list-sessions 2>&1 |grep ${TMUX_SESSION_NAME}; then
+        echo 1
+    else
+        echo 0
+    fi
+}
+
+function service_process_is_running() {
+    if ps aux |grep ${SERVICE_PYTHON_FILE_NAME} |grep -v grep; then
+        echo 1
+    else
+        echo 0
+    fi
+}
+
+function service_is_alive() {
+    SERVICE_IP="127.0.0.1"
+    SERVICE_PORT=$(grep listen_port ${CONF_DIR}/${CONF_FILE_NAME} |awk -F '=' '{print $2}' |awk '{print $1}')
+    RESULT_JSON=$(python3 ${INSTALL_DIR}/health_check_client.py --remote_host ${SERVICE_IP} --remote_port ${SERVICE_PORT} --check_tcp)
+    if echo ${RESULT_JSON} |grep status |grep -q UP; then
+        echo 1
+    else
+        echo 0
+    fi
+}
+
+function tmux_wait_for_session_to_exit() {
+    sleep 0.5
+    while [[ "$(tmux list-sessions 2>&1 |grep ${TMUX_SESSION_NAME})" != "" ]]; do
+        sleep 0.5
+    done
+}
+
+function tmux_kill_session() {
+    tmux kill-session -t ${TMUX_SESSION_NAME} 2>/dev/null
+    tmux_wait_for_session_to_exit
+}
+
+function tmux_start_session() {
+    if [[ "$(tmux_session_exists)" == "1" ]]; then
+        echo "tmux session \"${TMUX_SESSION_NAME}\" already started."
+    else
+        tmux new-session -d -s ${TMUX_SESSION_NAME}
+    fi
+}
+
+function tmux_execute_cmd() {
+    CMD=${1}
+    tmux send-keys -t ${TMUX_SESSION_NAME} "${CMD}"
+    tmux send-keys -t ${TMUX_SESSION_NAME} "Enter"
+}
+
+function wait_loop() {
+    _FUNC="${1}"
+    _DISPLAY_MSG="${2}"
+    _WAITING_MSG="${3}"
+    START_WAIT_TIMEOUT=9 # Seconds.
+    INNER_LOOP_INCREMENT=0.2 # Seconds.
+    SCALE=1 # Number of decimal places to use for bc.
+    START_WAIT_TIMEOUT_COUNTER=0
+    WAIT_REMAINING=0
+    echo -ne "  Startup checks: Checking ${SERVICE_DISPLAY_NAME} ${_DISPLAY_MSG}\r"
+    # Wait for the tmux session to start.
+    while [[ "$(${_FUNC})" == "0" ]]; do
+        WAIT_REMAINING=$(echo "scale=${SCALE}; ${START_WAIT_TIMEOUT} - ${START_WAIT_TIMEOUT_COUNTER}" | bc)
+        printf "\r%b" "\033[2K"
+        echo -ne "  Startup checks: (WAIT TIMEOUT: ${WAIT_REMAINING}) Waiting for ${SERVICE_DISPLAY_NAME} ${_WAIT_MSG}\r"
+        sleep ${INNER_LOOP_INCREMENT}
+        START_WAIT_TIMEOUT_COUNTER=$(echo "scale=${SCALE}; ${START_WAIT_TIMEOUT_COUNTER} + ${INNER_LOOP_INCREMENT}" | bc)
+        if (( $(echo "${START_WAIT_TIMEOUT_COUNTER} > ${START_WAIT_TIMEOUT}" |bc -l) )); then
+            printf "\r%b" "\033[2K"
+            echo "  Startup checks: (FAIL) Timed out waiting for ${SERVICE_DISPLAY_NAME} ${_WAIT_MSG}"
+            exit 1
+        fi
+    done
+    printf "\r%b" "\033[2K"
+    echo "  Startup checks: (PASS) ${SERVICE_DISPLAY_NAME} ${_DISPLAY_MSG}"
+}
+
+function wait_for_service_to_start() {
+    wait_loop tmux_session_exists "tmux session" "tmux session to start"
+    wait_loop service_process_is_running "process" "process to start"
+    wait_loop service_is_alive "responsiveness" "to become responsive"
+    echo "${MSG_RUNNING}"
+}
+
+function usage() {
+    echo "Usage: ${SERVICE_CONF_DIR}/${SCRIPT_NAME} {start|stop|restart|status}"
+}
+
+function status() {
+    # Check if the tmux session is running.
+    if [[ "$(tmux_session_exists)" == "0" ]]; then
+        echo "${MSG_NOT_RUNNING}"
+        exit 1
+    fi
+
+    # Check if the service process is running.
+    if [[ "$(service_process_is_running)" == "0" ]]; then
+        echo "${MSG_NOT_RUNNING}"
+        exit 1
+    fi
+
+    # Check the service itself.
+    if [[ "$(service_is_alive)" == "0" ]]; then
+        echo "${MSG_NOT_RUNNING}"
+        exit 1
+    fi
+
+    echo "${MSG_RUNNING}"
+}
+
+function start() {
+    if [[ "$(status)" == "${MSG_RUNNING}" ]]; then
+        echo "${SERVICE_DISPLAY_NAME} is already running"
+        exit 1
+    fi
+
+    tmux_kill_session
+    echo "Starting ${SERVICE_DISPLAY_NAME}"
+    tmux_start_session
+
+# TODO: Fix the logging so that it works with tee.
+# For some reason piping the output to tee does not work.
+#    tmux_execute_cmd ${TMUX_SESSION} "echo \" \" > ${LOG}"
+#    sleep 0.5
+#    tmux_execute_cmd ${TMUX_SESSION} "python3 ${INSTALL_DIR}/health_check_service.py 2>&1 |tee ${LOG}"
+
+# So to see the output you'll have to join the tmux session that this script runs in.
+    tmux_execute_cmd ${TMUX_SESSION} "python3 ${INSTALL_DIR}/health_check_service.py 2>&1"
+
+    wait_for_service_to_start
+}
+
+function stop() {
+    tmux_kill_session
+    if [[ "${MSG_NOT_RUNNING}" == "$(status)" ]]; then
+        echo "${SERVICE_DISPLAY_NAME} is stopped"
+    else
+        echo "Failed to stop ${SERVICE_DISPLAY_NAME}"
+        exit 1
+    fi
+}
+
+function restart() {
+    stop
+    start
+}
+
+# Create log directory if it does not exist.
+if [[ ! -d "${LOG_DIR}" ]]; then
+    echo "Creating log directory: \"${LOG_DIR}\""
+    mkdir -p ${LOG_DIR}
+fi
+
+case "$1" in
+    start)
+        start;;
+
+    stop)
+        stop;;
+
+    restart)
+        restart;;
+
+    status)
+        status;;
+
+    *)
+        usage
+        exit 1
+esac
+
+exit 0

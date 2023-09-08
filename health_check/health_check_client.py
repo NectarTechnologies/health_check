@@ -35,7 +35,7 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
     """
 
     # Constants.
-    _VERSION = "1.22"
+    _VERSION = "1.24"
     _current_year = date.today().year
     _copyright = f"(C) {_current_year}"
     _service_name = "Health Check Client"
@@ -45,8 +45,8 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
     DEFAULT_CONFIG_FILE = f"/etc/health_check/{CONFIG_FILE_NAME}"
 
     # Variables that can be passed into __init__().
-    server_host = None
-    server_port = 5757
+    remote_host = None
+    remote_port = 5757
     retry_count = 5  # number of times to retry starting the service
     check_tcp = False  # If True, then check that the TCP port of the server can be connected to.
     check_http_live = False  # If True, then check that the HTTP endpoint "/live" returns "LIVE".
@@ -57,7 +57,7 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
 
     # Internal variables.
     server_ip_addr = None
-    remote_server = None  # A tuple of (server_host, server_port) where server_host can be a hostname or IP address.
+    remote_server = None  # A tuple of (remote_host, remote_port) where remote_host can be a hostname or IP address.
     retry_wait_time = 3  # seconds
     current_try_count = 0  # current try count
     _log_level_name_max_length = 0  # length of longest log level name
@@ -74,8 +74,8 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
     )
 
     def __init__(self,  # pylint: disable=too-many-branches,too-many-statements,too-many-arguments,too-many-locals
-                 server_host=None,
-                 server_port=None,
+                 remote_host=None,
+                 remote_port=None,
                  retry_count=None,
                  log_level=None,
                  check_tcp=None,
@@ -89,9 +89,9 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
         """
         Constructor.
 
-        :param server_host: (str) The IP address of the server to connect to.
+        :param remote_host: (str) The IP address of the server to connect to.
 
-        :param server_port: (int) The TCP port of the server to connect to.
+        :param remote_port: (int) The TCP port of the server to connect to.
 
         :param retry_count: (int) The number of times to retry connecting to server.
 
@@ -151,31 +151,31 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
                             default=False,
                             help='Check if the favicon.ico is returned by the server.\n')
 
-        parser.add_argument('-l', '--log-level', dest='log_level', action="append",
+        parser.add_argument('-l', '--log_level', dest='log_level', action="append",
                             help="Logging level. Values: DEBUG, INFO, WARNING, ERROR. Default: INFO.\n")
 
-        parser.add_argument('-s', '--server-host', dest='server_host', action="append",
+        parser.add_argument('-s', '--remote_host', dest='remote_host', action="append",
                             help='Host name (or IP address) of the server to connect to.\n')
 
-        parser.add_argument('-p', '--server_port', dest='server_port', action="append",
+        parser.add_argument('-p', '--remote_port', dest='remote_port', action="append",
                             help='TCP port of the server to connect to. Default is TCP port "5757"\n')
 
         parser.add_argument('-r', '--retries', dest='retry_count', action="append",
                             help='The number of times to retry connecting to server.\n')
 
-        parser.add_argument('-t', '--check-tcp', dest='check_tcp', action="store_true",
+        parser.add_argument('-t', '--check_tcp', dest='check_tcp', action="store_true",
                             default=None,
                             help='If True, then check that the TCP port of the server can be connected to.\n')
 
-        parser.add_argument('-i', '--check-http-live', dest='check_http_live', action="store_true",
+        parser.add_argument('-i', '--check_http_live', dest='check_http_live', action="store_true",
                             default=None,
                             help='If True, then check that the HTTP endpoint "/live" returns "LIVE".\n')
 
-        parser.add_argument('-a', '--check-http-ready', dest='check_http_ready', action="store_true",
+        parser.add_argument('-a', '--check_http_ready', dest='check_http_ready', action="store_true",
                             default = None,
                             help='If True, then check that the HTTP endpoint "/ready" returns "READY".\n')
 
-        parser.add_argument('-e', '--check-http-health', dest='check_http_health', action="store_true",
+        parser.add_argument('-e', '--check_http_health', dest='check_http_health', action="store_true",
                             default=None,
                             help='If True, then check that the HTTP endpoint "/health" returns "HEALTHY".\n')
 
@@ -190,7 +190,7 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
                                  'search for a config file in the following locations starting with \n'
                                  'the top path first:\n'
                                  f'    {self.DEFAULT_CONFIG_FILE}\n'
-                                 f'    {os.path.abspath(__file__)}/{self.CONFIG_FILE_NAME}\n')
+                                 f'    {os.path.dirname(os.path.abspath(__file__))}/{self.CONFIG_FILE_NAME}\n')
 
         try:
             self.options, _ = parser.parse_known_args(sys.argv[:])
@@ -254,18 +254,17 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
         if self.log_level_default == LogLevel.DEBUG:
             self.show_banner()
 
-        if self.options.server_host is not None:
-            self.server_host = self.options.server_host[0]
+        if self.options.remote_host is not None:
+            self.remote_host = self.options.remote_host[0]
         else:
-            if server_host is None:
-                self._log(msg="Parameter server_host is required. See --help for more info.", level=LogLevel.ERROR)
-                sys.exit(1)
+            if remote_host is not None:
+                self.remote_host = remote_host
 
-        if self.options.server_port is not None:
-            self.server_port = int(self.options.server_port[0])
+        if self.options.remote_port is not None:
+            self.remote_port = int(self.options.remote_port[0])
         else:
-            if server_port is not None:
-                self.server_port = server_port
+            if remote_port is not None:
+                self.remote_port = remote_port
 
         if self.options.retry_count is not None:
             self.retry_count = int(self.options.retry_count[0])
@@ -341,10 +340,10 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
         # Update class variables with values from the config file. Use the class name as the section name.
         if self.config.has_section(self.__class__.__name__):
             for key, value in self.config[self.__class__.__name__].items():
-                if key == "server_host":
-                    self.server_host = value
-                elif key == "server_port":
-                    self.server_port = int(value)
+                if key == "remote_host":
+                    self.remote_host = value
+                elif key == "remote_port":
+                    self.remote_port = int(value)
                 elif key == "retry_count":
                     self.retry_count = int(value)
                 elif key == "retry_wait_time":
@@ -406,7 +405,8 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
 
         if level is not None and level.value[0] >= self.log_level_default.value[0]:
             if show_prefix:
-                # Generate an ISO 8601 conformant date-time stamp for the current time which also includes the timezone.
+                # Generate an ISO 8601 conformant date-time stamp for the current time which
+                # also includes the timezone.
                 datetime_iso8601 = datetime.now(timezone.utc).astimezone().isoformat()
                 # Remove colons from the time stamp to make it compatible with Windows when used in a file name.
                 datetime_iso8601.replace(':', '')
@@ -465,8 +465,8 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
                                     b"Pragma: no-cache\r\n"
         http_header_accept_encoding = b"Accept-Encoding: gzip, deflate\r\n"
 
-        if self.is_valid_ip_address(self.server_host):
-            http_header_request_host = b'Host: ' + self.server_host.encode() + b'\r\n'
+        if self.is_valid_ip_address(self.remote_host):
+            http_header_request_host = b'Host: ' + self.remote_host.encode() + b'\r\n'
         else:
             http_header_request_host = b'Host: ' + self.remote_server[0].encode() + b'\r\n'
 
@@ -584,15 +584,15 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
                 self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
                 # Check if we're dealing with an IP address or a host name.
-                if self.is_valid_ip_address(self.server_host):
+                if self.is_valid_ip_address(self.remote_host):
                     # Since we have a valid IP address, then use it as is.
-                    self.remote_server = (self.server_host, self.server_port)
+                    self.remote_server = (self.remote_host, self.remote_port)
                 else:
                     # Since we do not have a valid IP address, then assume it is a host name and resolve
                     # it to an IP address.
                     self._log(msg="Resolving server host name to IP.", level=LogLevel.DEBUG)
-                    self.server_ip_addr = socket.gethostbyname(self.server_host)
-                    self.remote_server = (self.server_ip_addr, self.server_port)
+                    self.server_ip_addr = socket.gethostbyname(self.remote_host)
+                    self.remote_server = (self.server_ip_addr, self.remote_port)
 
                 self.do_health_check()
                 break

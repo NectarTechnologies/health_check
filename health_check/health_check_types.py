@@ -199,12 +199,19 @@ class HealthCheckTypes:  # pylint: disable=too-few-public-methods
 
         return return_dict
 
+    def add_timestamp(self):
+        """
+
+        """
+        self.data["check_time"] = HealthCheckUtil.get_iso8601_time_stamp(remove_colons=False)
+
     def run_check(self, include_data_details=False):
         """
         Run the specific check.
         :param include_data_details: (bool) True to populate the data dictionary with script details, False otherwise.
         :return: (int) The return code of the script.
         """
+        self.add_timestamp()
         return_code = None
         if self._run_script is not None:
             script_output, return_code = HealthCheckUtil.run_command(self._run_script)

@@ -4,6 +4,7 @@ Health check utility class.
 import subprocess
 
 from enum import Enum
+from datetime import datetime, timezone, date  # pylint: disable=import-error,wrong-import-order
 
 
 class HealthCheckUtil:  # pylint: disable=too-few-public-methods
@@ -34,6 +35,21 @@ class HealthCheckUtil:  # pylint: disable=too-few-public-methods
                         break
                 return_code = proc.poll()
         return output, return_code
+
+    @staticmethod
+    def get_iso8601_time_stamp(remove_colons=False):
+        """
+        Gets the current time stamp.
+        :param remove_colons: (bool) If True, removes colons from the time stamp to make it compatible with
+            Windows when used in a file name.
+        :return: (string) The current time stamp.
+        """
+        # Generate an ISO 8601 conformant date-time stamp for the current time which also includes the timezone.
+        datetime_iso8601 = datetime.now(timezone.utc).astimezone().isoformat()
+        if remove_colons:
+            # Remove colons from the time stamp to make it compatible with Windows when used in a file name.
+            datetime_iso8601 = datetime_iso8601.replace(':', '')
+        return datetime_iso8601
 
 
 class LogLevel(Enum):  # pylint: disable=too-few-public-methods

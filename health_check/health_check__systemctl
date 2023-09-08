@@ -1,0 +1,11 @@
+[Unit]
+After=network.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=bash /etc/init.d/health_check start
+ExecStop=bash /etc/init.d/health_check stop
+
+[Install]
+WantedBy=default.target
