@@ -179,6 +179,13 @@ class HealthCheckTypes:  # pylint: disable=too-few-public-methods
         """
         return self.current_status
 
+    @staticmethod
+    def get_timestamp():
+        """
+        :return: (str) The current time stamp.
+        """
+        return HealthCheckUtil.get_iso8601_time_stamp(remove_colons=False)
+
     def get_status_dict(self):
         """
         :return: (dict) The current status of the health check.
@@ -188,7 +195,8 @@ class HealthCheckTypes:  # pylint: disable=too-few-public-methods
 
         return_dict = {
             "status": self.get_status(),
-            "health_check_type": self.name()
+            "health_check_type": self.name(),
+            "last_check_time": HealthCheckTypes.get_timestamp()
         }
 
         if self._msg is not None:
@@ -199,19 +207,12 @@ class HealthCheckTypes:  # pylint: disable=too-few-public-methods
 
         return return_dict
 
-    def add_timestamp(self):
-        """
-
-        """
-        self.data["check_time"] = HealthCheckUtil.get_iso8601_time_stamp(remove_colons=False)
-
     def run_check(self, include_data_details=False):
         """
         Run the specific check.
         :param include_data_details: (bool) True to populate the data dictionary with script details, False otherwise.
         :return: (int) The return code of the script.
         """
-        self.add_timestamp()
         return_code = None
         if self._run_script is not None:
             script_output, return_code = HealthCheckUtil.run_command(self._run_script)

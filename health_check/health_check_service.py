@@ -406,7 +406,6 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
         hc_version.set_status(hc_version.status_success())
         hc_version.data["service_name"] = HealthCheckService._service_name
         hc_version.data["version"] = HealthCheckService._VERSION
-        hc_version.add_timestamp()
         return hc_version
 
     def do_tcp_check(self):
