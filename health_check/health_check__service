@@ -1,5 +1,14 @@
 #!/bin/bash
 
+### BEGIN INIT INFO
+# Provides:          health_check
+# Required-Start:    $all
+# Required-Stop:
+# Default-Start:     2 3 4 5
+# Default-Stop:
+# Short-Description: Health Check Service
+### END INIT INFO
+
 SCRIPT_NAME=$(basename "${0}")
 VERSION="1.29"
 SERVICE_DISPLAY_NAME="Health Check Service"
