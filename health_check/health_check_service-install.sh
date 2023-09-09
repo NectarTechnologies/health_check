@@ -5,13 +5,15 @@
 
 SCRIPT_PATH=$(cd "$(dirname "${0}")" && pwd)
 SCRIPT_NAME=$(basename "${0}")
-VERSION="1.29"
+VERSION="1.31"
 COPYRIGHT_YEAR=$(date +%Y)
 SERVICE_DISPLAY_NAME="Health Check Service"
 SERVICE_NAME="health_check"
 CONF_FILE_NAME="${SERVICE_NAME}.conf"
 CONF_DIR="/etc/${SERVICE_NAME}"
 INSTALL_DIR="/opt/${SERVICE_NAME}"
+IGNORE_SERVICE_START_FAILURES="false"
+EXTRA_ARGS=""
 
 SERVICE_SCRIPT_DIR="/etc/init.d"
 SERVICE_SCRIPT_SRC_NAME="${SERVICE_NAME}__service"
@@ -42,15 +44,53 @@ function is_systemctl_installed() {
     fi
 }
 
-echo "----------------------------------------------------------------------"
-echo " ${SERVICE_DISPLAY_NAME} installer"
-echo " Script version: ${VERSION}"
-echo " (C) ${COPYRIGHT_YEAR}"
+function show_banner() {
+    echo "----------------------------------------------------------------------"
+    echo " ${SERVICE_DISPLAY_NAME} installer"
+    echo " Script version: ${VERSION}"
+    echo " (C) ${COPYRIGHT_YEAR}"
+}
+
+function show_usage() {
+    show_banner
+    echo ""
+    echo "usage: ${SCRIPT_NAME} [-h] [-w WORKING_DIR] [--version]"
+    echo ""
+    echo "Adds container names to /etc/hosts file."
+    echo ""
+    echo "options:"
+    echo "  -h, --help               Show this help message and exit."
+    echo "  -i, --ignore_service_start_failures"
+    echo "                           Ignore service start failures."
+    echo "  -v, --version            Show version information and exit."
+    echo ""
+}
+
+# Parse command line args.
+while (( "$#" )); do
+    case "$1" in
+        -h|--help)
+            show_usage
+            shift;;
+        -i|--ignore_service_start_failures)
+            IGNORE_SERVICE_START_FAILURES="true"
+            shift;;
+        -v|--version)
+            show_banner
+            shift;;
+        # Catch all other args so that we can pass them along.
+	      *)
+            ALL_OTHER_ARGS="${ALL_OTHER_ARGS} ${1}";
+            shift;;
+    esac
+done
 
 if [ "$EUID" -ne 0 ]
     then echo "Please run as root"
     exit 1
 fi
+
+show_banner
 
 echo ""
 check_dir "${INSTALL_DIR}/"
@@ -91,7 +131,11 @@ else
     echo "           automatically at boot but can be started manually with this command:"
     echo "               sudo service ${SERVICE_SCRIPT_DST_NAME} start"
     echo ""
-    service ${SERVICE_SCRIPT_DST_NAME} start ignore_service_start_failures
+    if [[ "${IGNORE_SERVICE_START_FAILURES}" == "true" ]]; then
+        echo "Ignoring service start failures."
+        EXTRA_ARGS="ignore_service_start_failures"
+    fi
+    service ${SERVICE_SCRIPT_DST_NAME} start ${EXTRA_ARGS}
     if [[ $? -ne 0 ]]; then
         echo "ERROR: Installer failed to start ${SERVICE_DISPLAY_NAME}"
         exit 1

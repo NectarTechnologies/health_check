@@ -218,7 +218,17 @@ class HealthCheckTypes:  # pylint: disable=too-few-public-methods
         """
         return_code = None
         if self._run_script is not None:
-            script_output, return_code = HealthCheckUtil.run_command(self._run_script)
+            err_msg = None
+            script_output = None
+            script_output_raw, return_code = HealthCheckUtil.run_command(self._run_script)
+
+            # Expect script_output to be in JSON format.
+            try:
+                # Attempt to convert the output JSON to a dictionary.
+                script_output = json.loads(script_output_raw)
+            except json.decoder.JSONDecodeError:
+                err_msg = "Could not decode JSON data from health check response."
+                script_output = script_output_raw
 
             if return_code == HealthCheckUtil.SUCCESS:
                 self.set_status(self.status_success())
@@ -227,12 +237,12 @@ class HealthCheckTypes:  # pylint: disable=too-few-public-methods
 
             if include_data_details:
                 self._last_return_code = return_code
-                self.data = {"script": {
-                        "output": script_output,
-                        "path": self._run_script,
-                        "return_code": self._last_return_code
-                    }
-                }
+                self.data = {"script": {}}
+                if err_msg is not None:
+                    self.data["script"]["err_msg"] = err_msg
+                self.data["script"]["path"] = self._run_script
+                self.data["script"]["return_code"] = self._last_return_code
+                self.data["script"]["output"] = script_output
 
         else:
             self.set_status(self.status_failure())

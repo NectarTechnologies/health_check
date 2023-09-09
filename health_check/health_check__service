@@ -10,7 +10,7 @@
 ### END INIT INFO
 
 SCRIPT_NAME=$(basename "${0}")
-VERSION="1.41"
+VERSION="1.43"
 SERVICE_DISPLAY_NAME="Health Check Service"
 SERVICE_NAME="health_check"
 TMUX_SESSION_NAME="${SERVICE_NAME}_service"
@@ -181,10 +181,10 @@ function start() {
     tmux_kill_session
     echo "Starting ${SERVICE_DISPLAY_NAME}"
     if [[ "${TURN_OFF_TIMEOUT_COUNTDOWN}" == "1" ]]; then
-        echo "Timeout countdown disabled"
+        echo "(Timeout countdown disabled)"
     fi
     if [[ "${IGNORE_SERVICE_START_FAILURES}" == "1" ]]; then
-        echo "Ignoring service start failures"
+        echo "(Ignoring service start failures)"
     fi
     tmux_start_session
 
@@ -243,11 +243,11 @@ while (( "$#" )); do
             status
             shift;;
 
-        turn_off_timeout_countdown)
+        -o|--turn_off_timeout_countdown)
             TURN_OFF_TIMEOUT_COUNTDOWN=1
             shift;;
 
-        ignore_service_start_failures)
+        -i|--ignore_service_start_failures)
             IGNORE_SERVICE_START_FAILURES=1
             shift;;
 

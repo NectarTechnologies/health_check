@@ -5,7 +5,7 @@ Description=Health Check Service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/bin/bash -c '/etc/init.d/health_check start turn_off_timeout_countdown'
+ExecStart=/bin/bash -c '/etc/init.d/health_check start --turn_off_timeout_countdown'
 ExecStop=/bin/bash -c '/etc/init.d/health_check stop'
 ExecReload=/bin/bash -c '/etc/init.d/health_check restart'
 
