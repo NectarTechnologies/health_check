@@ -5,7 +5,7 @@
 
 SCRIPT_PATH=$(cd "$(dirname "${0}")" && pwd)
 SCRIPT_NAME=$(basename "${0}")
-VERSION="1.28"
+VERSION="1.29"
 COPYRIGHT_YEAR=$(date +%Y)
 SERVICE_DISPLAY_NAME="Health Check Service"
 SERVICE_NAME="health_check"
@@ -58,6 +58,8 @@ echo "Coping files to ${INSTALL_DIR}/"
 cp ${SCRIPT_PATH}/favicon.ico ${INSTALL_DIR}/
 cp ${SCRIPT_PATH}/health_check*.py ${INSTALL_DIR}/
 cp ${SCRIPT_PATH}/check_*.sh ${INSTALL_DIR}/
+echo "Setting 'execute' permissions on: ${INSTALL_DIR}/check_*.sh"
+chmod +x ${INSTALL_DIR}/check_*.sh
 
 echo ""
 check_dir "${CONF_DIR}/"

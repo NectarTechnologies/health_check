@@ -14,11 +14,13 @@ import argparse
 import traceback
 import json
 import configparser
+import time
 
 from datetime import datetime, timezone, date  # pylint: disable=import-error,wrong-import-order
 from time import sleep  # pylint: disable=import-error,wrong-import-order
 from health_check_types import (HealthCheckVersion, HealthCheckTcp,  # pylint: disable=import-error,wrong-import-order
-                                HealthCheckLive, HealthCheckReady, HealthCheckHealth, HealthCheckFavicon)
+                                HealthCheckLive, HealthCheckReady, HealthCheckHealth, HealthCheckFavicon,
+                                HealthCheckTypes)
 from health_check_types_enum import HealthCheckTypesEnum as HCEnum  # pylint: disable=import-error,wrong-import-order
 from health_check_util import LogLevel  # pylint: disable=import-error,wrong-import-order
 
@@ -35,7 +37,7 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
     """
 
     # Constants.
-    _VERSION = "1.24"
+    _VERSION = "1.28"
     _current_year = date.today().year
     _copyright = f"(C) {_current_year}"
     _service_name = "Health Check Client"
@@ -456,7 +458,13 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
         """
         self.show_connecting_message()
 
-        response_msg = {}
+        response_msg = {
+            "status": "None",
+            "health_check_type": "None",
+            "last_check_time": "None",
+            "last_check_time_epoch": "None",
+            "msg": "None"
+        }
 
         http_header_request_method = b'GET '
         http_header_request_endpoint = b''
@@ -470,19 +478,20 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
         else:
             http_header_request_host = b'Host: ' + self.remote_server[0].encode() + b'\r\n'
 
-        # Connect to the server.
-        self.sock.connect(self.remote_server)
-
         # Check which health check type was requested.
         hc_type = None
+
+        if self.check_tcp:
+            hc_type = HealthCheckTcp(destination=self.remote_server)
+            hc_type.run_check(include_data_details=True)
+            response_msg = hc_type.get_status_dict()
+            response_msg_json = json.dumps(response_msg, indent=4)
+            self._log(msg=response_msg_json, level=LogLevel.INFO)
+            return
+
         try:
-            if self.check_tcp:
-                hc_type = HealthCheckTcp()
-                response_msg["status"] = hc_type.status_success()
-                response_msg["health_check_type"] = hc_type.name()
-                response_msg_json = json.dumps(response_msg, indent=4)
-                self._log(msg=response_msg_json, level=LogLevel.INFO)
-                return
+            # Connect to the server.
+            self.sock.connect(self.remote_server)
 
             if self.check_http_live:
                 hc_type = HealthCheckLive()
@@ -538,6 +547,8 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
             if not http_response_raw:
                 response_msg["status"] = "DOWN"
                 response_msg["msg"] = "No data received."
+                response_msg["last_check_time"] = HealthCheckTypes.get_timestamp()
+                response_msg["last_check_time_epoch"] =  time.time()
                 response_msg_json = json.dumps(response_msg, indent=4)
                 self._log(msg=response_msg_json, level=LogLevel.ERROR)
                 return

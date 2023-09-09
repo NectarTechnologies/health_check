@@ -40,7 +40,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
     """
 
     # Constants.
-    _VERSION = "1.54"
+    _VERSION = "1.59"
     _current_year = date.today().year
     _copyright = f"(C) {_current_year}"
     _service_name = "Health Check Service"
@@ -396,17 +396,43 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
         self._log(msg=f'Unsupported OS platform: "{platform.system()}"', level=LogLevel.WARNING)
         return None
 
+    def do_favicon_check(self):
+        """
+        Performs a favicon check.
+
+        :return: The favicon object of the health check service.
+
+        :return: (3-tuple of HealthCheckFavicon, bytearray, bytearray) The version check object, http response code,
+            and http response message.
+        """
+        hc_favicon = HealthCheckFavicon(favicon_path=self.favicon_path)
+
+        if hc_favicon.is_successful():
+            http_response_code = b"200"
+            http_response_msg = b"OK"
+        else:
+            http_response_code = b"503"
+            http_response_msg = b"Service Unavailable"
+
+        return hc_favicon, http_response_code, http_response_msg
+
     @staticmethod
     def do_version_check():
         """
         Performs a version check.
+
         :return: The version object of the health check service.
+
+        :return: (3-tuple of HealthCheckVersion, bytearray, bytearray) The version check object, http response code,
+            and http response message.
         """
         hc_version = HealthCheckVersion()
         hc_version.set_status(hc_version.status_success())
         hc_version.data["service_name"] = HealthCheckService._service_name
         hc_version.data["version"] = HealthCheckService._VERSION
-        return hc_version
+        http_response_code = b"200"
+        http_response_msg = b"OK"
+        return hc_version, http_response_code, http_response_msg
 
     def do_tcp_check(self):
         """
@@ -414,7 +440,14 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
 
         :return: (HealthCheckTcp) The TCP check object.
         """
-        hc_tcp = HealthCheckTcp()
+        # Test the port of this service.
+        # NOTE: It will obviously be successfully since this code is running.
+        #       The HealthCheckTcp is more useful when it is used by health_check_client.py.
+        srv_target = ("127.0.0.1", self.listen_port)
+        hc_tcp = HealthCheckTcp(destination=srv_target)
+        # Don't actually run the check because it will cause an infinite loop.
+        # Just set the status to "success" and return.
+        # Since this service is obviously running we don't need to actually check it.
         hc_tcp.set_status(hc_tcp.status_success())
         return hc_tcp
 
@@ -424,12 +457,23 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
         (even if it is not yet "READY"). Returns "NOT_LIVE" if the service is not detected as started.
 
         :param include_data_details: (bool) If True, then include data details in the health check script responses.
-        :return: (HealthCheckLive) The live check object.
+
+        :return: (3-tuple of HealthCheckLive, bytearray, bytearray) The live check object, http response code,
+            and http response message.
         """
         hc_live = HealthCheckLive(run_script=self.live_check_script)
         hc_live.run_check(include_data_details=include_data_details)
+
         self._log(msg=f"hc_live object: \n{hc_live.pretty_str()}", level=LogLevel.DEBUG)
-        return hc_live
+
+        if hc_live.is_live():
+            http_response_code = b"200"
+            http_response_msg = b"OK"
+        else:
+            http_response_code = b"503"
+            http_response_msg = b"Service Unavailable"
+
+        return hc_live, http_response_code, http_response_msg
 
     def do_ready_check(self, include_data_details=False):
         """
@@ -437,22 +481,27 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
         is ready to accept requests. Returns "NOT_READY" if the service is not "LIVE" or not ready to accept requests.
 
         :param include_data_details: (bool) If True, then include data details in the health check script responses.
-        :return: (HealthCheckReady) The ready check object.
+
+        :return: (3-tuple of HealthCheckReady, bytearray, bytearray) The ready check object, http response code,
+            and http response message.
         """
         # First do a "live" check.
-        hc_live = self.do_live_check(include_data_details=include_data_details)
+        hc_live, http_response_code, http_response_msg = self.do_live_check(include_data_details=include_data_details)
 
         hc_ready = HealthCheckReady(run_script=self.ready_check_script)
 
         if hc_live.is_live(include_data_details=include_data_details):
             hc_ready.is_ready(include_data_details=include_data_details)
             self._log(msg=f"hc_ready object: \n{hc_ready.pretty_str()}", level=LogLevel.DEBUG)
+            http_response_code = b"200"
+            http_response_msg = b"OK"
         else:
             self._log(msg=f"hc_ready object: \n{hc_ready.pretty_str()}", level=LogLevel.DEBUG)
             hc_ready.set_status(hc_ready.status_failure())
             hc_ready.set_msg(f'Received a {hc_live.get_status()} status from the {hc_live.name()} check with '
                              f'message: {hc_live.get_status_dict()}')
-        return hc_ready
+
+        return hc_ready, http_response_code, http_response_msg
 
     def do_health_check(self, include_data_details=False):
         """
@@ -460,22 +509,28 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
         is healthy. Returns "NOT_HEALTHY" if the service is not "LIVE", not "READY", or not healthy.
 
         :param include_data_details: (bool) If True, then include data details in the health check script responses.
-        :return: (HealthCheckHealth) The health check object.
+
+        :return: (3-tuple of HealthCheckHealth, bytearray, bytearray) The health check object, http response code,
+            and http response message.
         """
         # First do a "ready" check (which in turn will also do a "live" check).
-        hc_ready = self.do_ready_check(include_data_details=include_data_details)
+        hc_ready, http_response_code, http_response_msg = \
+            self.do_ready_check(include_data_details=include_data_details)
 
         hc_health = HealthCheckHealth(run_script=self.health_check_script)
 
         if hc_ready.is_ready(include_data_details=include_data_details):
             hc_health.is_healthy(include_data_details=include_data_details)
             self._log(msg=f"hc_health object: \n{hc_health.pretty_str()}", level=LogLevel.DEBUG)
+            http_response_code = b"200"
+            http_response_msg = b"OK"
         else:
             self._log(msg=f"hc_health object: \n{hc_health.pretty_str()}", level=LogLevel.DEBUG)
             hc_health.set_status(hc_health.status_failure())
             hc_health.set_msg(f'Received a {hc_ready.get_status()} status from the {hc_ready.name()} check '
                               f'with message: [{hc_ready.get_status_dict()["msg"]}],')
-        return hc_health
+
+        return hc_health, http_response_code, http_response_msg
 
     def process_boolean_query_string_arg(self, query_string_arg=None):
         """
@@ -562,8 +617,11 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
                             self._log(msg=f"Request: {http_method} {http_endpoint}")
 
                             http_ver = b"HTTP/1.1"
-                            http_response_code = b"200"
-                            http_response_msg = b"OK"
+
+                            # Default to an error state.
+                            http_response_code = b'503'
+                            http_response_msg = b'Service Unavailable'
+
                             http_header_cache_control = b"Cache-Control: private, max-age=0, no-store, no-cache\r\n" \
                                                         b"Pragma: no-cache\r\n"
                             http_header_content_type = b"Content-Type: application/json\r\n"
@@ -576,23 +634,27 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
 
                             # Check which HTTP endpoint was requested.
                             if data.startswith(f"GET {HC.get_health_endpoint()}"):
-                                http_body = self.do_health_check(_details).get_status_dict()
-
-                            elif data.startswith(f"GET {HC.get_live_endpoint()}"):
-                                http_body = self.do_live_check(_details).get_status_dict()
+                                check_obj, http_response_code, http_response_msg = self.do_health_check(_details)
+                                http_body = check_obj.get_status_dict()
 
                             elif data.startswith(f"GET {HC.get_ready_endpoint()}"):
-                                http_body = self.do_ready_check(_details).get_status_dict()
+                                check_obj, http_response_code, http_response_msg = self.do_ready_check(_details)
+                                http_body = check_obj.get_status_dict()
+
+                            elif data.startswith(f"GET {HC.get_live_endpoint()}"):
+                                check_obj, http_response_code, http_response_msg = self.do_live_check(_details)
+                                http_body = check_obj.get_status_dict()
 
                             elif data.startswith(f"GET {HC.get_version_endpoint()}"):
-                                http_body = self.do_version_check().get_status_dict()
+                                check_obj, http_response_code, http_response_msg = self.do_version_check()
+                                http_body = check_obj.get_status_dict()
 
                             elif data.startswith(f"GET {HC.get_favicon_endpoint()}"):
                                 # Return the favicon.ico binary file.
                                 http_header_content_type = b"Content-Type: image/x-icon\r\n" \
                                                            b"Accept-Ranges: bytes\r\n"
 
-                                hc_favicon = HealthCheckFavicon()
+                                hc_favicon, http_response_code, http_response_msg = self.do_favicon_check()
 
                                 if hc_favicon.is_successful():
                                     http_body = hc_favicon.get_binary_data()
@@ -610,7 +672,6 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
                                 http_header_content_type + http_header_cache_control
 
                             http_response_bytes = b''
-
                             http_body_json = None
 
                             if http_body:

@@ -9,6 +9,7 @@ import os
 import ast
 import json
 import time
+import socket
 
 from health_check_types_enum import HealthCheckTypesEnum as HCEnum  # pylint: disable=import-error,wrong-import-order
 from health_check_util import HealthCheckUtil  # pylint: disable=import-error,wrong-import-order
@@ -251,10 +252,54 @@ class HealthCheckVersion(HealthCheckTypes):
 
 class HealthCheckTcp(HealthCheckTypes):
     """
-    Health check TCP.
+    Health check TCP. Tests if a remote TCP port is open.
+    :param destination: (tuple) The destination (host, port).
     """
-    def __init__(self):
+    destination = None  # (host, port)
+
+    def __init__(self, destination=None):
         super().__init__(HCEnum.TCP.value)
+
+        if destination is None:
+            self._raise_exception("Destination is None.")
+        self.destination = destination
+
+    def run_check(self, include_data_details=False):
+        """
+        This overrides the base class method.
+        Check the remote TCP port.
+        :param include_data_details: (bool) True to populate the data dictionary with script details, False otherwise.
+        :return: (int) The return code of the script.
+        """
+        socket_obj = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        return_code = socket_obj.connect_ex(self.destination)
+
+        if return_code == 0:
+            self.set_status(self.status_success())
+            socket_obj.close()
+        else:
+            self.set_status(self.status_failure())
+            socket_obj.close()
+
+        if include_data_details:
+            self._last_return_code = return_code
+            self.data = {"script": {
+                    "output": "",
+                    "path": self._run_script,
+                    "return_code": self._last_return_code
+                }
+            }
+
+        return return_code
+
+    def is_successful(self, include_data_details=False):
+        """
+        This overrides the base class method.
+        :param include_data_details: (bool) True to populate the data dictionary with script details, False otherwise.
+        :return: (bool) True if the health check is successful, False otherwise.
+        """
+        self.run_check()
+        return self.current_status == self.status_success()
 
     def is_up(self, include_data_details=False):
         """
@@ -319,18 +364,18 @@ class HealthCheckFavicon(HealthCheckTypes):
     """
     Health check favicon.
     """
-    file_path = "favicon.ico"
+    favicon_path = None
     binary_data = None
 
-    def __init__(self, file_path=None):
+    def __init__(self, favicon_path=None):
         super().__init__(HCEnum.FAVICON.value)
-        if file_path is not None:
-            self.file_path = file_path
+        if favicon_path is not None:
+            self.favicon_path = favicon_path
 
         if self.read_binary_data():
             self._msg = "(binary file)"
         else:
-            self._msg = f'File {self.file_path} not found)'
+            self._msg = f'File {self.favicon_path} not found)'
 
     def get_binary_data(self):
         """
@@ -346,15 +391,25 @@ class HealthCheckFavicon(HealthCheckTypes):
         :return: (bool) True if the favicon.ico file exists, False otherwise.
         """
         # Check if the favicon.ico file exists.
-        if os.path.isfile(self.file_path):
+        if os.path.isfile(self.favicon_path):
             self.set_status(self.status_success())
             # Read the favicon.ico file into the http_body.
-            with open(self.file_path, "rb") as favicon_file:
+            with open(self.favicon_path, "rb") as favicon_file:
                 self.binary_data = favicon_file.read()
             return True
 
         self.set_status(self.status_failure())
         return False
+
+    def is_successful(self, include_data_details=False):
+        """
+        This overrides the base class method.
+        :param include_data_details: (bool) True to populate the data dictionary with script details, False otherwise.
+        :return: (bool) True if the health check is successful, False otherwise.
+        """
+        if self.current_status is None:
+            self.get_binary_data()
+        return self.current_status == self.status_success()
 
 
 class HealthCheckUnknown(HealthCheckTypes):
