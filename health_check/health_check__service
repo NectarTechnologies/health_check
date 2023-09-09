@@ -10,7 +10,7 @@
 ### END INIT INFO
 
 SCRIPT_NAME=$(basename "${0}")
-VERSION="1.29"
+VERSION="1.37"
 SERVICE_DISPLAY_NAME="Health Check Service"
 SERVICE_NAME="health_check"
 TMUX_SESSION_NAME="${SERVICE_NAME}_service"
@@ -23,6 +23,8 @@ SERVICE_CONF_DIR="/etc/init.d"
 SERVICE_PYTHON_FILE_NAME="${SERVICE_NAME}_service.py"
 MSG_RUNNING="${SERVICE_DISPLAY_NAME} is running."
 MSG_NOT_RUNNING="${SERVICE_DISPLAY_NAME} is not running."
+START=0 # 0 for False, 1 for True.
+TURN_OFF_TIMEOUT_COUNTDOWN=0 # 0 for False, 1 for True.
 
 function tmux_session_exists() {
     if tmux list-sessions 2>&1 |grep ${TMUX_SESSION_NAME}; then
@@ -79,35 +81,49 @@ function tmux_execute_cmd() {
 
 function wait_loop() {
     _FUNC="${1}"
-    _DISPLAY_MSG="${2}"
+    _BEGIN_MSG="${2}"
     _WAITING_MSG="${3}"
-    START_WAIT_TIMEOUT=9 # Seconds.
-    INNER_LOOP_INCREMENT=0.2 # Seconds.
+    _STARTED_MSG="${4}"
+    START_WAIT_TIMEOUT=10 # Seconds.
+    INNER_LOOP_INCREMENT=0.3 # Seconds.
     SCALE=1 # Number of decimal places to use for bc.
     START_WAIT_TIMEOUT_COUNTER=0
     WAIT_REMAINING=0
-    echo -ne "  Startup checks: Checking ${SERVICE_DISPLAY_NAME} ${_DISPLAY_MSG}\r"
+    if [[ "${TURN_OFF_TIMEOUT_COUNTDOWN}" == "1" ]]; then
+        _ECHO_OPT=""
+        _ECHO_END_LINE=""
+    else
+        _ECHO_OPT="-ne"
+        _ECHO_END_LINE="\r"
+    fi
+    echo ${_ECHO_OPT} "  Startup checks: Checking ${SERVICE_DISPLAY_NAME} ${_BEGIN_MSG}${_ECHO_END_LINE}"
     # Wait for the tmux session to start.
     while [[ "$(${_FUNC})" == "0" ]]; do
         WAIT_REMAINING=$(echo "scale=${SCALE}; ${START_WAIT_TIMEOUT} - ${START_WAIT_TIMEOUT_COUNTER}" | bc)
-        printf "\r%b" "\033[2K"
-        echo -ne "  Startup checks: (WAIT TIMEOUT: ${WAIT_REMAINING}) Waiting for ${SERVICE_DISPLAY_NAME} ${_WAIT_MSG}\r"
+        if [[ "${TURN_OFF_TIMEOUT_COUNTDOWN}" == "0" ]]; then
+            printf "\r%b" "\033[2K"
+        fi
+        echo ${_ECHO_OPT} "  Startup checks: (WAIT TIMEOUT: ${WAIT_REMAINING}) Waiting for ${SERVICE_DISPLAY_NAME} ${_WAITING_MSG}${_ECHO_END_LINE}"
         sleep ${INNER_LOOP_INCREMENT}
         START_WAIT_TIMEOUT_COUNTER=$(echo "scale=${SCALE}; ${START_WAIT_TIMEOUT_COUNTER} + ${INNER_LOOP_INCREMENT}" | bc)
         if (( $(echo "${START_WAIT_TIMEOUT_COUNTER} > ${START_WAIT_TIMEOUT}" |bc -l) )); then
-            printf "\r%b" "\033[2K"
-            echo "  Startup checks: (FAIL) Timed out waiting for ${SERVICE_DISPLAY_NAME} ${_WAIT_MSG}"
+            if [[ "${TURN_OFF_TIMEOUT_COUNTDOWN}" == "0" ]]; then
+                printf "\r%b" "\033[2K"
+            fi
+            echo "  Startup checks: (FAIL) Timed out waiting for ${SERVICE_DISPLAY_NAME} ${_WAITING_MSG}"
             exit 1
         fi
     done
-    printf "\r%b" "\033[2K"
-    echo "  Startup checks: (PASS) ${SERVICE_DISPLAY_NAME} ${_DISPLAY_MSG}"
+    if [[ "${TURN_OFF_TIMEOUT_COUNTDOWN}" == "0" ]]; then
+        printf "\r%b" "\033[2K"
+    fi
+    echo "  Startup checks: (PASS) ${SERVICE_DISPLAY_NAME} ${_STARTED_MSG}"
 }
 
 function wait_for_service_to_start() {
-    wait_loop tmux_session_exists "tmux session" "tmux session to start"
-    wait_loop service_process_is_running "process" "process to start"
-    wait_loop service_is_alive "responsiveness" "to become responsive"
+    wait_loop tmux_session_exists "tmux session" "tmux session to start" "tmux session started"
+    wait_loop service_process_is_running "process" "process to start" "process started"
+    wait_loop service_is_alive "responsiveness" "to respond" "is responding"
     echo "${MSG_RUNNING}"
 }
 
@@ -145,6 +161,9 @@ function start() {
 
     tmux_kill_session
     echo "Starting ${SERVICE_DISPLAY_NAME}"
+    if [[ "${TURN_OFF_TIMEOUT_COUNTDOWN}" == "1" ]]; then
+        echo "Timeout countdown disabled"
+    fi
     tmux_start_session
 
 # TODO: Fix the logging so that it works with tee.
@@ -180,22 +199,37 @@ if [[ ! -d "${LOG_DIR}" ]]; then
     mkdir -p ${LOG_DIR}
 fi
 
-case "$1" in
-    start)
-        start;;
+while (( "$#" )); do
+    case "$1" in
+        start)
+            START=1
+            shift;;
 
-    stop)
-        stop;;
+        stop)
+            stop
+            shift;;
 
-    restart)
-        restart;;
+        restart)
+            restart
+            shift;;
 
-    status)
-        status;;
+        status)
+            status
+            shift;;
 
-    *)
-        usage
-        exit 1
-esac
+        turn_off_timeout_countdown)
+            TURN_OFF_TIMEOUT_COUNTDOWN=1
+            shift;;
+
+        *)
+            echo "Unknown arg: \"${1}\""
+            usage
+            exit 1
+    esac
+done
+
+if [[ "${START}" == "1" ]]; then
+    start
+fi
 
 exit 0
