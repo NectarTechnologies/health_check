@@ -9,7 +9,7 @@
 
 SCRIPT_PATH=$(cd "$(dirname "${0}")" && pwd)
 SCRIPT_NAME=$(basename "${0}")
-VERSION="1.1"
+VERSION="1.2"
 
 # TODO: Implement "uptime" stats.
 echo "{" \
@@ -24,9 +24,9 @@ echo "{" \
         "\"system_percent\": \"$(mpstat |grep all |awk '{print $5}')\"" \
     "}," \
     "\"memory\": {" \
-        "\"total_gb\": \"$(free -m |grep Mem |awk '{print $2}')\"," \
-        "\"used_gb\": \"$(free -m |grep Mem |awk '{print $3}')\"," \
-        "\"free_gb\": \"$(free -m |grep Mem |awk '{print $4}')\"" \
+        "\"total_mb\": \"$(free -m |grep Mem |awk '{print $2}')\"," \
+        "\"used_mb\": \"$(free -m |grep Mem |awk '{print $3}')\"," \
+        "\"free_mb\": \"$(free -m |grep Mem |awk '{print $4}')\"" \
     "}," \
     "\"disk\": {" \
         "\"free\": \"$(df -h / |awk '{print $4}' |grep -vE 'Size|Used|Avail')\"" \
