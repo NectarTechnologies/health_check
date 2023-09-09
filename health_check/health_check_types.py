@@ -8,6 +8,7 @@ Used by health_check_client.py
 import os
 import ast
 import json
+import time
 
 from health_check_types_enum import HealthCheckTypesEnum as HCEnum  # pylint: disable=import-error,wrong-import-order
 from health_check_util import HealthCheckUtil  # pylint: disable=import-error,wrong-import-order
@@ -196,7 +197,8 @@ class HealthCheckTypes:  # pylint: disable=too-few-public-methods
         return_dict = {
             "status": self.get_status(),
             "health_check_type": self.name(),
-            "last_check_time": HealthCheckTypes.get_timestamp()
+            "last_check_time": HealthCheckTypes.get_timestamp(),
+            "last_check_time_epoch": time.time()
         }
 
         if self._msg is not None:
