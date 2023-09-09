@@ -10,7 +10,7 @@
 ### END INIT INFO
 
 SCRIPT_NAME=$(basename "${0}")
-VERSION="1.37"
+VERSION="1.41"
 SERVICE_DISPLAY_NAME="Health Check Service"
 SERVICE_NAME="health_check"
 TMUX_SESSION_NAME="${SERVICE_NAME}_service"
@@ -25,6 +25,8 @@ MSG_RUNNING="${SERVICE_DISPLAY_NAME} is running."
 MSG_NOT_RUNNING="${SERVICE_DISPLAY_NAME} is not running."
 START=0 # 0 for False, 1 for True.
 TURN_OFF_TIMEOUT_COUNTDOWN=0 # 0 for False, 1 for True.
+IGNORE_SERVICE_START_FAILURES=0 # 0 for False, 1 for True.
+START_FAILED=0 # 0 for False, 1 for True.
 
 function tmux_session_exists() {
     if tmux list-sessions 2>&1 |grep ${TMUX_SESSION_NAME}; then
@@ -79,16 +81,23 @@ function tmux_execute_cmd() {
     tmux send-keys -t ${TMUX_SESSION_NAME} "Enter"
 }
 
+function erase_line() {
+    if [[ "${TURN_OFF_TIMEOUT_COUNTDOWN}" == "0" ]]; then
+        printf "\r%b" "\033[2K"
+    fi
+}
+
 function wait_loop() {
     _FUNC="${1}"
     _BEGIN_MSG="${2}"
     _WAITING_MSG="${3}"
     _STARTED_MSG="${4}"
-    START_WAIT_TIMEOUT=10 # Seconds.
+    START_WAIT_TIMEOUT=5 # Seconds.
     INNER_LOOP_INCREMENT=0.3 # Seconds.
     SCALE=1 # Number of decimal places to use for bc.
     START_WAIT_TIMEOUT_COUNTER=0
     WAIT_REMAINING=0
+    FAILED=0
     if [[ "${TURN_OFF_TIMEOUT_COUNTDOWN}" == "1" ]]; then
         _ECHO_OPT=""
         _ECHO_END_LINE=""
@@ -100,31 +109,41 @@ function wait_loop() {
     # Wait for the tmux session to start.
     while [[ "$(${_FUNC})" == "0" ]]; do
         WAIT_REMAINING=$(echo "scale=${SCALE}; ${START_WAIT_TIMEOUT} - ${START_WAIT_TIMEOUT_COUNTER}" | bc)
-        if [[ "${TURN_OFF_TIMEOUT_COUNTDOWN}" == "0" ]]; then
-            printf "\r%b" "\033[2K"
-        fi
+        erase_line
         echo ${_ECHO_OPT} "  Startup checks: (WAIT TIMEOUT: ${WAIT_REMAINING}) Waiting for ${SERVICE_DISPLAY_NAME} ${_WAITING_MSG}${_ECHO_END_LINE}"
         sleep ${INNER_LOOP_INCREMENT}
         START_WAIT_TIMEOUT_COUNTER=$(echo "scale=${SCALE}; ${START_WAIT_TIMEOUT_COUNTER} + ${INNER_LOOP_INCREMENT}" | bc)
         if (( $(echo "${START_WAIT_TIMEOUT_COUNTER} > ${START_WAIT_TIMEOUT}" |bc -l) )); then
-            if [[ "${TURN_OFF_TIMEOUT_COUNTDOWN}" == "0" ]]; then
-                printf "\r%b" "\033[2K"
+            erase_line
+            if [[ "${IGNORE_SERVICE_START_FAILURES}" == "1" ]]; then
+                echo "  Startup checks: (FAIL, IGNORED) Timed out waiting for ${SERVICE_DISPLAY_NAME} ${_WAITING_MSG}"
+                touch /tmp/${SERVICE_NAME}_start_failed
+                FAILED=1
+                break
+            else
+                echo "  Startup checks: (FAIL) Timed out waiting for ${SERVICE_DISPLAY_NAME} ${_WAITING_MSG}"
+                exit 1
             fi
-            echo "  Startup checks: (FAIL) Timed out waiting for ${SERVICE_DISPLAY_NAME} ${_WAITING_MSG}"
-            exit 1
         fi
     done
-    if [[ "${TURN_OFF_TIMEOUT_COUNTDOWN}" == "0" ]]; then
-        printf "\r%b" "\033[2K"
+
+    if [[ "${FAILED}" == "0" ]]; then
+        erase_line
+        echo "  Startup checks: (PASS) ${SERVICE_DISPLAY_NAME} ${_STARTED_MSG}"
     fi
-    echo "  Startup checks: (PASS) ${SERVICE_DISPLAY_NAME} ${_STARTED_MSG}"
 }
 
 function wait_for_service_to_start() {
     wait_loop tmux_session_exists "tmux session" "tmux session to start" "tmux session started"
     wait_loop service_process_is_running "process" "process to start" "process started"
     wait_loop service_is_alive "responsiveness" "to respond" "is responding"
-    echo "${MSG_RUNNING}"
+    START_FAILED=0
+    if [[ -f /tmp/${SERVICE_NAME}_start_failed ]]; then
+        echo "${MSG_NOT_RUNNING}"
+        rm -r /tmp/${SERVICE_NAME}_start_failed
+    else
+        echo "${MSG_RUNNING}"
+    fi
 }
 
 function usage() {
@@ -164,6 +183,9 @@ function start() {
     if [[ "${TURN_OFF_TIMEOUT_COUNTDOWN}" == "1" ]]; then
         echo "Timeout countdown disabled"
     fi
+    if [[ "${IGNORE_SERVICE_START_FAILURES}" == "1" ]]; then
+        echo "Ignoring service start failures"
+    fi
     tmux_start_session
 
 # TODO: Fix the logging so that it works with tee.
@@ -176,6 +198,10 @@ function start() {
     tmux_execute_cmd ${TMUX_SESSION} "python3 ${INSTALL_DIR}/health_check_service.py 2>&1"
 
     wait_for_service_to_start
+
+    if [[ "${START_FAILED}" == "1" ]]; then
+        exit 1
+    fi
 }
 
 function stop() {
@@ -219,6 +245,10 @@ while (( "$#" )); do
 
         turn_off_timeout_countdown)
             TURN_OFF_TIMEOUT_COUNTDOWN=1
+            shift;;
+
+        ignore_service_start_failures)
+            IGNORE_SERVICE_START_FAILURES=1
             shift;;
 
         *)

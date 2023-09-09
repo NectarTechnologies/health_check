@@ -91,7 +91,7 @@ else
     echo "           automatically at boot but can be started manually with this command:"
     echo "               sudo service ${SERVICE_SCRIPT_DST_NAME} start"
     echo ""
-    service ${SERVICE_SCRIPT_DST_NAME} start
+    service ${SERVICE_SCRIPT_DST_NAME} start ignore_service_start_failures
     if [[ $? -ne 0 ]]; then
         echo "ERROR: Installer failed to start ${SERVICE_DISPLAY_NAME}"
         exit 1
