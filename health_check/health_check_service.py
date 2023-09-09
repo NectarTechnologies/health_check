@@ -40,7 +40,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
     """
 
     # Constants.
-    _VERSION = "1.59"
+    _VERSION = "1.60"
     _current_year = date.today().year
     _copyright = f"(C) {_current_year}"
     _service_name = "Health Check Service"
@@ -489,6 +489,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
         hc_live, http_response_code, http_response_msg = self.do_live_check(include_data_details=include_data_details)
 
         hc_ready = HealthCheckReady(run_script=self.ready_check_script)
+        hc_ready.hc_live = hc_live
 
         if hc_live.is_live(include_data_details=include_data_details):
             hc_ready.is_ready(include_data_details=include_data_details)
@@ -518,6 +519,8 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
             self.do_ready_check(include_data_details=include_data_details)
 
         hc_health = HealthCheckHealth(run_script=self.health_check_script)
+        hc_health.hc_live = hc_ready.hc_live
+        hc_health.hc_ready = hc_ready
 
         if hc_ready.is_ready(include_data_details=include_data_details):
             hc_health.is_healthy(include_data_details=include_data_details)

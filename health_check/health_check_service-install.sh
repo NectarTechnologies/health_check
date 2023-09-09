@@ -5,13 +5,14 @@
 
 SCRIPT_PATH=$(cd "$(dirname "${0}")" && pwd)
 SCRIPT_NAME=$(basename "${0}")
-VERSION="1.31"
+VERSION="1.32"
 COPYRIGHT_YEAR=$(date +%Y)
 SERVICE_DISPLAY_NAME="Health Check Service"
 SERVICE_NAME="health_check"
 CONF_FILE_NAME="${SERVICE_NAME}.conf"
 CONF_DIR="/etc/${SERVICE_NAME}"
 INSTALL_DIR="/opt/${SERVICE_NAME}"
+CHECK_SCRIPTS_DIR="${INSTALL_DIR}/check_scripts"
 IGNORE_SERVICE_START_FAILURES="false"
 EXTRA_ARGS=""
 
@@ -97,9 +98,10 @@ check_dir "${INSTALL_DIR}/"
 echo "Coping files to ${INSTALL_DIR}/"
 cp ${SCRIPT_PATH}/favicon.ico ${INSTALL_DIR}/
 cp ${SCRIPT_PATH}/health_check*.py ${INSTALL_DIR}/
-cp ${SCRIPT_PATH}/check_*.sh ${INSTALL_DIR}/
-echo "Setting 'execute' permissions on: ${INSTALL_DIR}/check_*.sh"
-chmod +x ${INSTALL_DIR}/check_*.sh
+check_dir "${CHECK_SCRIPTS_DIR}"
+cp ${SCRIPT_PATH}/check_scripts/* ${CHECK_SCRIPTS_DIR}/
+echo "Setting 'execute' permissions on: ${CHECK_SCRIPTS_DIR}/*"
+chmod -R +x ${CHECK_SCRIPTS_DIR}/*
 
 echo ""
 check_dir "${CONF_DIR}/"

@@ -9,7 +9,7 @@
 
 SCRIPT_PATH=$(cd "$(dirname "${0}")" && pwd)
 SCRIPT_NAME=$(basename "${0}")
-VERSION="1.0"
+VERSION="1.1"
 
 MAIN_SERVICE_NAME="Foo Bar Service"
 
@@ -67,5 +67,7 @@ fi
 #    output_json "Service not running: ${MAIN_SERVICE_NAME} (Process ${PROCESS_1} not running.)"
 #    exit 1
 #fi
+
+output_json "All processes are running."
 
 exit 0

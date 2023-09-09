@@ -188,13 +188,10 @@ class HealthCheckTypes:  # pylint: disable=too-few-public-methods
         """
         return HealthCheckUtil.get_iso8601_time_stamp(remove_colons=False)
 
-    def get_status_dict(self):
+    def build_status_dict(self):
         """
         :return: (dict) The current status of the health check.
         """
-        if self.current_status is None:
-            self._raise_exception("Health check has not yet been performed.")
-
         return_dict = {
             "status": self.get_status(),
             "health_check_type": self.name(),
@@ -207,6 +204,17 @@ class HealthCheckTypes:  # pylint: disable=too-few-public-methods
 
         if self.data:
             return_dict["data"] = self.data
+
+        return return_dict
+
+    def get_status_dict(self):
+        """
+        :return: (dict) The current status of the health check.
+        """
+        if self.current_status is None:
+            self._raise_exception("Health check has not yet been performed.")
+
+        return_dict = self.build_status_dict()
 
         return return_dict
 
@@ -341,6 +349,8 @@ class HealthCheckReady(HealthCheckTypes):
     """
     Health check ready.
     """
+    hc_live = None
+
     def __init__(self, run_script=None):
         super().__init__(HCEnum.HTTP_READY.value)
         if run_script is not None:
@@ -353,11 +363,37 @@ class HealthCheckReady(HealthCheckTypes):
         """
         return self.is_successful(include_data_details=include_data_details)
 
+    def build_status_dict(self):
+        """
+        This overrides the base class method.
+        :return: (dict) The current status of the health check.
+        """
+        return_dict = {
+            "status": self.get_status(),
+            "health_check_type": self.name(),
+            "last_check_time": HealthCheckTypes.get_timestamp(),
+            "last_check_time_epoch": time.time()
+        }
+
+        if self.hc_live is not None:
+            return_dict["live_check"] = self.hc_live.get_status()
+
+        if self._msg is not None:
+            return_dict["msg"] = self._msg
+
+        if self.data:
+            return_dict["data"] = self.data
+
+        return return_dict
+
 
 class HealthCheckHealth(HealthCheckTypes):
     """
     Health check health.
     """
+    hc_live = None
+    hc_ready = None
+
     def __init__(self, run_script=None):
         super().__init__(HCEnum.HTTP_HEALTH.value)
         if run_script is not None:
@@ -369,6 +405,32 @@ class HealthCheckHealth(HealthCheckTypes):
         :return: (bool) True if the health check status is "healthy", False otherwise.
         """
         return self.is_successful(include_data_details=include_data_details)
+
+    def build_status_dict(self):
+        """
+        This overrides the base class method.
+        :return: (dict) The current status of the health check.
+        """
+        return_dict = {
+            "status": self.get_status(),
+            "health_check_type": self.name(),
+            "last_check_time": HealthCheckTypes.get_timestamp(),
+            "last_check_time_epoch": time.time()
+        }
+
+        if self.hc_live is not None:
+            return_dict["live_check"] = self.hc_live.get_status()
+
+        if self.hc_ready is not None:
+            return_dict["ready_check"] = self.hc_ready.get_status()
+
+        if self._msg is not None:
+            return_dict["msg"] = self._msg
+
+        if self.data:
+            return_dict["data"] = self.data
+
+        return return_dict
 
 
 class HealthCheckFavicon(HealthCheckTypes):
