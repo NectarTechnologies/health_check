@@ -272,6 +272,7 @@ class HealthCheckTcp(HealthCheckTypes):
         :return: (int) The return code of the script.
         """
         socket_obj = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        socket_obj.settimeout(2)
         return_code = socket_obj.connect_ex(self.destination)
 
         if return_code == 0:

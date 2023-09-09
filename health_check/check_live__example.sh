@@ -4,7 +4,7 @@
 #
 # Return code is zero if the service is live, non-zero otherwise.
 #
-# Additional stdout and / or stderr output is acceptable and should be in JSON format.
+# Additional stdout and / or stderr output is acceptable but must be in JSON format.
 #
 
 SCRIPT_PATH=$(cd "$(dirname "${0}")" && pwd)
