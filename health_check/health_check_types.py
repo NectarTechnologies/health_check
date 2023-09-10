@@ -290,9 +290,14 @@ class HealthCheckIcmp(HealthCheckTypes):
         :param include_data_details: (bool) True to populate the data dictionary with script details, False otherwise.
         :return: (int) The return code of the script.
         """
-        return_code = None
-        cmd = ['bash', '-c', r"ping -c 3 -W 2 -i 0.2 10.3.0.254 |grep -E 'packet\ loss|min/avg/max'"]
+        cmd = ['bash', '-c', f"ping -c 3 -W 2 -i 0.2 {self.destination}"]
         script_output, return_code = HealthCheckUtil.run_command(cmd)
+        script_output_lines = script_output.splitlines()
+
+        script_output = ""
+        for line in script_output_lines:
+            if "packet loss" in line or "min/avg/max" in line:
+                script_output = script_output + line + "\n"
 
         if return_code == 0:
             self.set_status(self.status_success())
