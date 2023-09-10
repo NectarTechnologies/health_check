@@ -37,7 +37,7 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
     """
 
     # Constants.
-    _VERSION = "1.32"
+    _VERSION = "1.37"
     _current_year = date.today().year
     _copyright = f"(C) {_current_year}"
     _service_name = "Health Check Client"
@@ -52,9 +52,9 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
     retry_count = 5  # number of times to retry starting the service
     check_icmp = False  # If True, then check that the server responds to an ICMP echo request.
     check_tcp = False  # If True, then check that the TCP port of the server can be connected to.
-    check_http_live = False  # If True, then check that the HTTP endpoint "/live" returns "LIVE".
-    check_http_ready = False  # If True, then check that the HTTP endpoint "/ready" returns "READY".
-    check_http_health = False  # If True, then check that the HTTP endpoint "/health" returns "HEALTHY".
+    check_live = False  # If True, then check that the HTTP endpoint "/live" returns "LIVE".
+    check_ready = False  # If True, then check that the HTTP endpoint "/ready" returns "READY".
+    check_health = False  # If True, then check that the HTTP endpoint "/health" returns "HEALTHY".
     check_server_version = False  # If True, then check the version returned the HTTP endpoint "/version".
     check_favicon = False  # If True, then check if the favicon is returned by the HTTP endpoint "/favicon.ico".
 
@@ -83,9 +83,9 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
                  log_level=None,
                  check_icmp=None,
                  check_tcp=None,
-                 check_http_live=None,
-                 check_http_ready=None,
-                 check_http_health=None,
+                 check_live=None,
+                 check_ready=None,
+                 check_health=None,
                  check_favicon=None,
                  check_server_version=None,
                  include_data_details=None,
@@ -106,21 +106,21 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
         :param check_tcp: (bool) If True, then check that the TCP port of the server can be connected to.
             Default is True.
 
-        :param check_http_live: (bool) If True, then check that the HTTP endpoint "/live" returns "LIVE".
+        :param check_live: (bool) If True, then check that the HTTP endpoint "/live" returns "LIVE".
             Default is False.
                 Example of "LIVE" response:
                     {"status": "LIVE"}
                 Example of "NOT_LIVE" response:
                     {"status": "NOT_LIVE"}
 
-        :param check_http_ready: (bool) If True, then check that the HTTP endpoint "/ready" returns "READY".
+        :param check_ready: (bool) If True, then check that the HTTP endpoint "/ready" returns "READY".
             Default is False.
                 Example of "READY" response:
                     {"status": "READY"}
                 Example of "NOT_READY" response:
                     {"status": "NOT_READY"}
 
-        :param check_http_health: (bool) If True, then check that the HTTP endpoint "/health" returns "HEALTHY".
+        :param check_health: (bool) If True, then check that the HTTP endpoint "/health" returns "HEALTHY".
             Default is False.
                 Example of "HEALTHY" response:
                     {"status": "HEALTHY"}
@@ -177,15 +177,15 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
                             default=None,
                             help='If True, then check that the TCP port of the server can be connected to.\n')
 
-        parser.add_argument('-i', '--check_http_live', dest='check_http_live', action="store_true",
+        parser.add_argument('-i', '--check_live', dest='check_live', action="store_true",
                             default=None,
                             help='If True, then check that the HTTP endpoint "/live" returns "LIVE".\n')
 
-        parser.add_argument('-a', '--check_http_ready', dest='check_http_ready', action="store_true",
+        parser.add_argument('-a', '--check_ready', dest='check_ready', action="store_true",
                             default = None,
                             help='If True, then check that the HTTP endpoint "/ready" returns "READY".\n')
 
-        parser.add_argument('-e', '--check_http_health', dest='check_http_health', action="store_true",
+        parser.add_argument('-e', '--check_health', dest='check_health', action="store_true",
                             default=None,
                             help='If True, then check that the HTTP endpoint "/health" returns "HEALTHY".\n')
 
@@ -294,23 +294,23 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
             if check_tcp is not None:
                 self.check_tcp = check_tcp
 
-        if self.options.check_http_live is not None:
-            self.check_http_live = self.options.check_http_live
+        if self.options.check_live is not None:
+            self.check_live = self.options.check_live
         else:
-            if check_http_live is not None:
-                self.check_http_live = check_http_live
+            if check_live is not None:
+                self.check_live = check_live
 
-        if self.options.check_http_ready is not None:
-            self.check_http_ready = self.options.check_http_ready
+        if self.options.check_ready is not None:
+            self.check_ready = self.options.check_ready
         else:
-            if check_http_ready is not None:
-                self.check_http_ready = check_http_ready
+            if check_ready is not None:
+                self.check_ready = check_ready
 
-        if self.options.check_http_health is not None:
-            self.check_http_health = self.options.check_http_health
+        if self.options.check_health is not None:
+            self.check_health = self.options.check_health
         else:
-            if check_http_health is not None:
-                self.check_http_health = check_http_health
+            if check_health is not None:
+                self.check_health = check_health
 
         if self.options.check_favicon is not None:
             self.check_favicon = self.options.check_favicon
@@ -334,9 +334,9 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
         # pylint: disable=too-many-boolean-expressions
         if not self.check_icmp and \
             not self.check_tcp and \
-            not self.check_http_live and \
-            not self.check_http_ready and \
-            not self.check_http_health and \
+            not self.check_live and \
+            not self.check_ready and \
+            not self.check_health and \
             not self.check_server_version and \
             not self.check_favicon:
             self.check_tcp = True
@@ -470,7 +470,9 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
     def do_health_check(self):  # pylint: disable=too-many-branches,too-many-statements,too-many-locals
         """
         Perform a specific health check.
+        :return: (int) Return code of the health check. 0 = success, non-zero = failure.
         """
+        return_code = 1  # Default to a non-success (i.e. non-zero) return code.
         self.show_connecting_message()
 
         response_msg = {
@@ -489,7 +491,7 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
             response_msg = hc_type.get_status_dict()
             response_msg_json = json.dumps(response_msg, indent=4)
             self._log(msg=response_msg_json, level=LogLevel.INFO)
-            return
+            return hc_type.get_return_code()
 
         if self.check_tcp:
             hc_type = HealthCheckTcp(destination=self.remote_server)
@@ -497,7 +499,7 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
             response_msg = hc_type.get_status_dict()
             response_msg_json = json.dumps(response_msg, indent=4)
             self._log(msg=response_msg_json, level=LogLevel.INFO)
-            return
+            return hc_type.get_return_code()
 
         http_header_request_method = b'GET '
         http_header_request_endpoint = b''
@@ -515,17 +517,17 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
             # Connect to the server.
             self.sock.connect(self.remote_server)
 
-            if self.check_http_live:
+            if self.check_live:
                 hc_type = HealthCheckLive()
                 response_msg["health_check_type"] = hc_type.name()
                 http_header_request_endpoint = f"{hc_type.endpoint()}".encode()
 
-            elif self.check_http_ready:
+            elif self.check_ready:
                 hc_type = HealthCheckReady()
                 response_msg["health_check_type"] = hc_type.name()
                 http_header_request_endpoint = f"{hc_type.endpoint()}".encode()
 
-            elif self.check_http_health:
+            elif self.check_health:
                 hc_type = HealthCheckHealth()
                 response_msg["health_check_type"] = hc_type.name()
                 http_header_request_endpoint = f"{hc_type.endpoint()}".encode()
@@ -573,7 +575,9 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
                 response_msg["last_check_time_epoch"] =  time.time()
                 response_msg_json = json.dumps(response_msg, indent=4)
                 self._log(msg=response_msg_json, level=LogLevel.ERROR)
-                return
+                if hc_type is not None:
+                    hc_type.get_status_dict()
+                    return hc_type.get_return_code()
 
             self._log(msg=f"Bytes Received: {http_response_raw}", level=LogLevel.DEBUG)
 
@@ -604,11 +608,14 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
             self._log(msg="Encountered unknown exception: {exc}", level=LogLevel.ERROR)
             raise exc
 
+        return return_code
+
     def run(self):  # pylint: disable=too-many-branches,too-many-statements
         """
         Runs the client.  Will retry up to retry_count times if connection to server fails.
-        :return:
+        :return: (int) Return code of the health check. 0 = success, non-zero = failure.
         """
+        return_code = None
         while self.current_try_count < self.retry_count:
             try:
                 self.current_try_count = self.current_try_count + 1
@@ -627,7 +634,7 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
                     self.server_ip_addr = socket.gethostbyname(self.remote_host)
                     self.remote_server = (self.server_ip_addr, self.remote_port)
 
-                self.do_health_check()
+                return_code = self.do_health_check()
                 break
 
             except self.retryable_errors as exc:
@@ -641,10 +648,12 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
                     continue
                 except KeyboardInterrupt:
                     self._log(msg=f"{self.shutdown_msg} (KeyboardInterrupt).", level=LogLevel.WARNING)
+                    return_code = 1
                     break
 
             except KeyboardInterrupt:
                 self._log(msg=f"{self.shutdown_msg} (KeyboardInterrupt).", level=LogLevel.WARNING)
+                return_code = 1
                 break
 
             except Exception as exc:  # pylint: disable=broad-except
@@ -653,6 +662,7 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
                     self._log(msg=msg + f"\n{traceback.format_exc()}", level=LogLevel.ERROR)
                 else:
                     self._log(msg=msg + f" {exc}", level=LogLevel.ERROR)
+                return_code = 1
                 break
 
             finally:
@@ -661,9 +671,12 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
         if self.current_try_count >= self.retry_count:
             self._log(msg=f"Unable to connect to {self.remote_server[0]} port {self.remote_server[1]}",
                       level=LogLevel.ERROR)
-            return
+            return_code = 1
+
+        return return_code
 
 
 if __name__ == '__main__':
     hc_client = HealthCheckClient()
-    hc_client.run()
+    exit_code = hc_client.run()
+    sys.exit(exit_code)

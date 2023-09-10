@@ -3,6 +3,7 @@
 Simple, lightweight service to allow for TCP and HTTP health checks and additional custom checks.
 Primarily used for health checks of microservices inside containers but can be used for any health check on a server.
 
+TODO: Add to the returned JSON the name of the service that the health check is for.
 TODO: Implement logging to a file in addition to the stdout (default to /var/blah-blah-blah.log).
 TODO: Implement log rotation so log files do not fill the disk.
 TODO: Implement a cli flag to specify the log file name and path.
@@ -40,7 +41,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
     """
 
     # Constants.
-    _VERSION = "1.62"
+    _VERSION = "1.63"
     _current_year = date.today().year
     _copyright = f"(C) {_current_year}"
     _service_name = "Health Check Service"
@@ -69,11 +70,12 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
     config_file = None
     config = None
     favicon_path = f"{INSTALL_DIR}/favicon.ico"  # Default, but can get overwritten by config file or passed in param.
+    monitored_service_name = None  # The name of the "patient" that the health check is for.
 
     def __init__(self,  # pylint: disable=too-many-branches,too-many-statements,too-many-arguments
                  listen_ip=None, listen_port=None, retry_count=None, log_level=None, live_check_script=None,
                  ready_check_script=None, health_check_script=None, include_data_details=False, config_file=None,
-                 favicon_path=None):
+                 favicon_path=None, monitored_service_name=None):
         """
         Constructor.
 
@@ -102,6 +104,10 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
         :param config_file: (str) Path to the config file.
 
         :param favicon_path: (str) The path to the favicon.ico file to use for the health check service.
+
+        :param monitored_service_name: (str) The name of the "service" that the health check is for.
+            This should be something like the name of the microservice that is being health checked.
+            This name will be included in the health check responses.
         """
 
         super().__init__()
@@ -142,6 +148,11 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
                                                 'check responses. Can also be controlled via a query string \n'
                                                 'in the incoming HTTP request URL. Example:\n'
                                                 '    http://1.2.3.4:5757/ready?include_data_details=true\n')
+
+        parser.add_argument('--monitored_service_name', dest='monitored_service_name', action="append",
+                            help='The name of the "patient" that the health check is for. This should be something \n'
+                                 'like the name of the microservice that is being health checked. This name will be \n'
+                                 'included in the health check responses.\n')
 
         parser.add_argument('--config_file', dest='config_file', action="append",
                             help='Path to the config file. If none is specified then the service will \n'
@@ -208,6 +219,12 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
                     self.log_level_default = LogLevel.ERROR
                 else:
                     self.log_level_default = LogLevel.INFO
+
+        if self.options.monitored_service_name is not None:
+            self.monitored_service_name = self.options.monitored_service_name[0]
+        else:
+            if monitored_service_name is not None:
+                self.monitored_service_name = monitored_service_name
 
         if self.options.listen_ip is not None:
             self.listen_ip = self.options.listen_ip[0]
@@ -317,6 +334,8 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
                         self.include_data_details = False
                 elif key == "favicon_path":
                     self.favicon_path = value
+                elif key == "monitored_service_name":
+                    self.monitored_service_name = value
                 else:
                     self._log(msg=f'Unknown config file parameter "{key}"', level=LogLevel.WARNING)
 
@@ -629,7 +648,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
                                                         b"Pragma: no-cache\r\n"
                             http_header_content_type = b"Content-Type: application/json\r\n"
 
-                            http_body = {}
+                            http_body = {"monitored_service": self.monitored_service_name}
 
                             http_body_is_binary_file = False
                             status_msg = ''

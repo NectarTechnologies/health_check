@@ -98,6 +98,14 @@ class HealthCheckTypes:  # pylint: disable=too-few-public-methods
         """
         return HCEnum.FAVICON.value[HCEnum.ENDPOINT.value]
 
+    def get_return_code(self):
+        """
+        :return: (int) The return code of the script.
+        """
+        if self._last_return_code is None:
+            self._raise_exception("Return code is None.")
+        return self._last_return_code
+
     def type_id(self):
         """
         :return: (str) The health check type ID.

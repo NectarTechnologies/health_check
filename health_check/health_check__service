@@ -10,7 +10,7 @@
 ### END INIT INFO
 
 SCRIPT_NAME=$(basename "${0}")
-VERSION="1.43"
+VERSION="1.44"
 SERVICE_DISPLAY_NAME="Health Check Service"
 SERVICE_NAME="health_check"
 TMUX_SESSION_NAME="${SERVICE_NAME}_service"
@@ -24,7 +24,7 @@ SERVICE_PYTHON_FILE_NAME="${SERVICE_NAME}_service.py"
 MSG_RUNNING="${SERVICE_DISPLAY_NAME} is running."
 MSG_NOT_RUNNING="${SERVICE_DISPLAY_NAME} is not running."
 START=0 # 0 for False, 1 for True.
-TURN_OFF_TIMEOUT_COUNTDOWN=0 # 0 for False, 1 for True.
+TURN_OFF_SINGLE_LINE_TIMEOUT_COUNTDOWN=0 # 0 for False, 1 for True.
 IGNORE_SERVICE_START_FAILURES=0 # 0 for False, 1 for True.
 START_FAILED=0 # 0 for False, 1 for True.
 
@@ -82,7 +82,7 @@ function tmux_execute_cmd() {
 }
 
 function erase_line() {
-    if [[ "${TURN_OFF_TIMEOUT_COUNTDOWN}" == "0" ]]; then
+    if [[ "${TURN_OFF_SINGLE_LINE_TIMEOUT_COUNTDOWN}" == "0" ]]; then
         printf "\r%b" "\033[2K"
     fi
 }
@@ -98,7 +98,7 @@ function wait_loop() {
     START_WAIT_TIMEOUT_COUNTER=0
     WAIT_REMAINING=0
     FAILED=0
-    if [[ "${TURN_OFF_TIMEOUT_COUNTDOWN}" == "1" ]]; then
+    if [[ "${TURN_OFF_SINGLE_LINE_TIMEOUT_COUNTDOWN}" == "1" ]]; then
         _ECHO_OPT=""
         _ECHO_END_LINE=""
     else
@@ -180,7 +180,7 @@ function start() {
 
     tmux_kill_session
     echo "Starting ${SERVICE_DISPLAY_NAME}"
-    if [[ "${TURN_OFF_TIMEOUT_COUNTDOWN}" == "1" ]]; then
+    if [[ "${TURN_OFF_SINGLE_LINE_TIMEOUT_COUNTDOWN}" == "1" ]]; then
         echo "(Timeout countdown disabled)"
     fi
     if [[ "${IGNORE_SERVICE_START_FAILURES}" == "1" ]]; then
@@ -243,8 +243,8 @@ while (( "$#" )); do
             status
             shift;;
 
-        -o|--turn_off_timeout_countdown)
-            TURN_OFF_TIMEOUT_COUNTDOWN=1
+        -o|--turn_off_single_line_timeout_countdown)
+            TURN_OFF_SINGLE_LINE_TIMEOUT_COUNTDOWN=1
             shift;;
 
         -i|--ignore_service_start_failures)
