@@ -657,19 +657,23 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
                             # Check which HTTP endpoint was requested.
                             if data.startswith(f"GET {HC.get_health_endpoint()}"):
                                 check_obj, http_response_code, http_response_msg = self.do_health_check(_details)
-                                http_body = check_obj.get_status_dict()
+                                # Merge the health check data with the default http_body dict.
+                                http_body = {**http_body, **check_obj.get_status_dict()}
 
                             elif data.startswith(f"GET {HC.get_ready_endpoint()}"):
                                 check_obj, http_response_code, http_response_msg = self.do_ready_check(_details)
-                                http_body = check_obj.get_status_dict()
+                                # Merge the health check data with the default http_body dict.
+                                http_body = {**http_body, **check_obj.get_status_dict()}
 
                             elif data.startswith(f"GET {HC.get_live_endpoint()}"):
                                 check_obj, http_response_code, http_response_msg = self.do_live_check(_details)
-                                http_body = check_obj.get_status_dict()
+                                # Merge the health check data with the default http_body dict.
+                                http_body = {**http_body, **check_obj.get_status_dict()}
 
                             elif data.startswith(f"GET {HC.get_version_endpoint()}"):
                                 check_obj, http_response_code, http_response_msg = self.do_version_check()
-                                http_body = check_obj.get_status_dict()
+                                # Merge the health check data with the default http_body dict.
+                                http_body = {**http_body, **check_obj.get_status_dict()}
 
                             elif data.startswith(f"GET {HC.get_favicon_endpoint()}"):
                                 # Return the favicon.ico binary file.
@@ -686,7 +690,8 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
                                     http_body = hc_favicon.get_status_dict()
 
                             else:
-                                http_body = HealthCheckUnknown().get_status_dict()
+                                # Merge the health check data with the default http_body dict.
+                                http_body = {**http_body, **HealthCheckUnknown().get_status_dict()}
                                 http_response_log_level = LogLevel.ERROR
 
                             # Build the header and body of the HTTP response.
