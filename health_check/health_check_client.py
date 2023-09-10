@@ -20,7 +20,7 @@ from datetime import datetime, timezone, date  # pylint: disable=import-error,wr
 from time import sleep  # pylint: disable=import-error,wrong-import-order
 from health_check_types import (HealthCheckVersion, HealthCheckTcp,  # pylint: disable=import-error,wrong-import-order
                                 HealthCheckLive, HealthCheckReady, HealthCheckHealth, HealthCheckFavicon,
-                                HealthCheckTypes)
+                                HealthCheckTypes, HealthCheckIcmp)
 from health_check_types_enum import HealthCheckTypesEnum as HCEnum  # pylint: disable=import-error,wrong-import-order
 from health_check_util import LogLevel  # pylint: disable=import-error,wrong-import-order
 
@@ -37,7 +37,7 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
     """
 
     # Constants.
-    _VERSION = "1.28"
+    _VERSION = "1.32"
     _current_year = date.today().year
     _copyright = f"(C) {_current_year}"
     _service_name = "Health Check Client"
@@ -50,6 +50,7 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
     remote_host = None
     remote_port = 5757
     retry_count = 5  # number of times to retry starting the service
+    check_icmp = False  # If True, then check that the server responds to an ICMP echo request.
     check_tcp = False  # If True, then check that the TCP port of the server can be connected to.
     check_http_live = False  # If True, then check that the HTTP endpoint "/live" returns "LIVE".
     check_http_ready = False  # If True, then check that the HTTP endpoint "/ready" returns "READY".
@@ -80,6 +81,7 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
                  remote_port=None,
                  retry_count=None,
                  log_level=None,
+                 check_icmp=None,
                  check_tcp=None,
                  check_http_live=None,
                  check_http_ready=None,
@@ -98,6 +100,8 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
         :param retry_count: (int) The number of times to retry connecting to server.
 
         :param log_level: (str) Logging level. Values: DEBUG, INFO, WARNING, ERROR. Default: INFO.
+
+        :param check_icmp: (bool) If True, then check that the server responds to an ICMP echo request.
 
         :param check_tcp: (bool) If True, then check that the TCP port of the server can be connected to.
             Default is True.
@@ -164,6 +168,10 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
 
         parser.add_argument('-r', '--retries', dest='retry_count', action="append",
                             help='The number of times to retry connecting to server.\n')
+
+        parser.add_argument('-c', '--check_icmp', dest='check_icmp', action="store_true",
+                            default=None,
+                            help='If True, then check that the server responds to an ICMP echo request.\n')
 
         parser.add_argument('-t', '--check_tcp', dest='check_tcp', action="store_true",
                             default=None,
@@ -274,6 +282,12 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
             if retry_count is not None:
                 self.retry_count = retry_count
 
+        if self.options.check_icmp is not None:
+            self.check_icmp = self.options.check_icmp
+        else:
+            if check_icmp is not None:
+                self.check_icmp = check_icmp
+
         if self.options.check_tcp is not None:
             self.check_tcp = self.options.check_tcp
         else:
@@ -318,7 +332,8 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
 
         # If all health check types are False, then default to TCP health check.
         # pylint: disable=too-many-boolean-expressions
-        if not self.check_tcp and \
+        if not self.check_icmp and \
+            not self.check_tcp and \
             not self.check_http_live and \
             not self.check_http_ready and \
             not self.check_http_health and \
@@ -466,6 +481,24 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
             "msg": "None"
         }
 
+        hc_type = None
+
+        if self.check_icmp:
+            hc_type = HealthCheckIcmp(destination=self.remote_server[0])
+            hc_type.run_check(include_data_details=True)
+            response_msg = hc_type.get_status_dict()
+            response_msg_json = json.dumps(response_msg, indent=4)
+            self._log(msg=response_msg_json, level=LogLevel.INFO)
+            return
+
+        if self.check_tcp:
+            hc_type = HealthCheckTcp(destination=self.remote_server)
+            hc_type.run_check(include_data_details=True)
+            response_msg = hc_type.get_status_dict()
+            response_msg_json = json.dumps(response_msg, indent=4)
+            self._log(msg=response_msg_json, level=LogLevel.INFO)
+            return
+
         http_header_request_method = b'GET '
         http_header_request_endpoint = b''
         http_header_request_version = b' HTTP/1.1\r\n'
@@ -477,17 +510,6 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
             http_header_request_host = b'Host: ' + self.remote_host.encode() + b'\r\n'
         else:
             http_header_request_host = b'Host: ' + self.remote_server[0].encode() + b'\r\n'
-
-        # Check which health check type was requested.
-        hc_type = None
-
-        if self.check_tcp:
-            hc_type = HealthCheckTcp(destination=self.remote_server)
-            hc_type.run_check(include_data_details=True)
-            response_msg = hc_type.get_status_dict()
-            response_msg_json = json.dumps(response_msg, indent=4)
-            self._log(msg=response_msg_json, level=LogLevel.INFO)
-            return
 
         try:
             # Connect to the server.

@@ -19,6 +19,7 @@ class HealthCheckTypesEnum(Enum):  # pylint: disable=too-few-public-methods
     Parameter 4: (str) The status to return if the health check is successful.
     Parameter 5: (str) The status to return if the health check is not successful.
     """
+    ICMP = 0, 'ICMP', 'ICMP', 'UP', 'DOWN'
     TCP = 1, 'TCP', 'TCP', 'UP', 'DOWN'
     HTTP_LIVE = 2, '/live', 'LIVE', 'LIVE', 'NOT_LIVE'
     HTTP_READY = 3, '/ready', 'READY', 'READY', 'NOT_READY'

@@ -268,6 +268,64 @@ class HealthCheckVersion(HealthCheckTypes):
         self.set_status(self.status_success())
 
 
+class HealthCheckIcmp(HealthCheckTypes):
+    """
+    Health check ICMP echo response (aka PING). Tests if a remote network endpoint will respond to
+    an ICMP echo request.
+    :param destination: (str) The destination host (hostname or IP address).
+    """
+    destination = None
+
+    def __init__(self, destination=None):
+        super().__init__(HCEnum.ICMP.value)
+
+        if destination is None:
+            self._raise_exception("Destination is None.")
+        self.destination = destination
+
+    def run_check(self, include_data_details=False):
+        """
+        This overrides the base class method.
+        Test if the remote network endpoint will respond to an ICMP echo request.
+        :param include_data_details: (bool) True to populate the data dictionary with script details, False otherwise.
+        :return: (int) The return code of the script.
+        """
+        return_code = None
+        cmd = ['bash', '-c', r"ping -c 3 -W 2 -i 0.2 10.3.0.254 |grep -E 'packet\ loss|min/avg/max'"]
+        script_output, return_code = HealthCheckUtil.run_command(cmd)
+
+        if return_code == 0:
+            self.set_status(self.status_success())
+        else:
+            self.set_status(self.status_failure())
+
+        if include_data_details:
+            self._last_return_code = return_code
+            self.data = {"script": {
+                    "return_code": self._last_return_code,
+                    "output": script_output
+                }
+            }
+
+        return return_code
+
+    def is_successful(self, include_data_details=False):
+        """
+        This overrides the base class method.
+        :param include_data_details: (bool) True to populate the data dictionary with script details, False otherwise.
+        :return: (bool) True if the health check is successful, False otherwise.
+        """
+        self.run_check()
+        return self.current_status == self.status_success()
+
+    def is_up(self, include_data_details=False):
+        """
+        :param include_data_details: (bool) True to populate the data dictionary with script details, False otherwise.
+        :return: (bool) True if the health check status is "up", False otherwise.
+        """
+        return self.is_successful(include_data_details=include_data_details)
+
+
 class HealthCheckTcp(HealthCheckTypes):
     """
     Health check TCP. Tests if a remote TCP port is open.
@@ -303,9 +361,8 @@ class HealthCheckTcp(HealthCheckTypes):
         if include_data_details:
             self._last_return_code = return_code
             self.data = {"script": {
-                    "output": "",
-                    "path": self._run_script,
-                    "return_code": self._last_return_code
+                    "return_code": self._last_return_code,
+                    "output": ""
                 }
             }
 
