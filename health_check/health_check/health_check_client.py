@@ -37,7 +37,7 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
     """
 
     # Constants.
-    _VERSION = "1.77"
+    _VERSION = "1.78"
     _current_year = date.today().year
     _copyright = f"(C) {_current_year}"
     _service_name = "Health Check Client"
@@ -70,7 +70,7 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
     include_data_details = None  # include data details in the health check script responses
     config_file = DEFAULT_CONFIG_FILE
     show_config_on_startup = False  # Outputs all the config parameters upon startup.
-    no_output_only_exit_code = True  # If False, then only return the return exit code and no other output.
+    no_output_only_exit_code = False  # If False, then only return the return exit code and no other output.
 
     retryable_errors = (
         socket.error,
@@ -92,7 +92,7 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
                  include_data_details=None,
                  config_file=None,
                  show_config_on_startup=False,
-                 no_output_only_exit_code=True):
+                 no_output_only_exit_code=False):
         """
         Constructor.
 
@@ -143,7 +143,7 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
 
         :param show_config_on_startup: (bool) If True, then output all the config parameters upon startup.
 
-        :param no_output_only_exit_code: (bool) If False, then only return the return exit code and no other output.
+        :param no_output_only_exit_code: (bool) If True, only return the return exit code and no other output.
         """
 
         super().__init__()
