@@ -15,7 +15,7 @@ from health_check_types_enum import HealthCheckTypesEnum as HCEnum  # pylint: di
 from health_check_util import HealthCheckUtil  # pylint: disable=import-error,wrong-import-order
 
 
-class HealthCheckTypes:  # pylint: disable=too-few-public-methods
+class HealthCheckTypes:  # pylint: disable=too-many-instance-attributes,too-many-public-methods
     """
     Health check types.
     """
@@ -64,6 +64,13 @@ class HealthCheckTypes:  # pylint: disable=too-few-public-methods
         raise RuntimeError(msg)
 
     @staticmethod
+    def get_tcp_endpoint():
+        """
+        :return: (str) The tcp endpoint string.
+        """
+        return HCEnum.TCP.value[HCEnum.ENDPOINT.value]
+
+    @staticmethod
     def get_live_endpoint():
         """
         :return: (str) The live endpoint string.
@@ -97,6 +104,12 @@ class HealthCheckTypes:  # pylint: disable=too-few-public-methods
         :return: (str) The favicon endpoint string.
         """
         return HCEnum.FAVICON.value[HCEnum.ENDPOINT.value]
+
+    def set_return_code(self, return_code=None):
+        """
+        Set the return code of the health check.
+        """
+        self._last_return_code = return_code
 
     def get_return_code(self):
         """
@@ -145,6 +158,14 @@ class HealthCheckTypes:  # pylint: disable=too-few-public-methods
         if self.health_check_type is None:
             self._raise_exception("Health check type is None.")
         return self.health_check_type[HCEnum.STATUS_FAILURE.value]
+
+    def status_degraded(self):
+        """
+        :return: (str) The health check degraded status string.
+        """
+        if self.health_check_type is None:
+            self._raise_exception("Health check type is None.")
+        return self.health_check_type[HCEnum.STATUS_DEGRADED.value]
 
     def set_status(self, status=None):
         """
@@ -209,6 +230,8 @@ class HealthCheckTypes:  # pylint: disable=too-few-public-methods
 
         if self._msg is not None:
             return_dict["msg"] = self._msg
+        else:
+            return_dict["msg"] = ""
 
         if self.data:
             return_dict["data"] = self.data
@@ -219,11 +242,7 @@ class HealthCheckTypes:  # pylint: disable=too-few-public-methods
         """
         :return: (dict) The current status of the health check.
         """
-        if self.current_status is None:
-            self._raise_exception("Health check has not yet been performed.")
-
         return_dict = self.build_status_dict()
-
         return return_dict
 
     def run_check(self, include_data_details=False):
@@ -342,44 +361,85 @@ class HealthCheckIcmp(HealthCheckTypes):
 class HealthCheckTcp(HealthCheckTypes):
     """
     Health check TCP. Tests if a remote TCP port is open.
-    :param destination: (tuple) The destination (host, port).
+    :param ip_tcp_list: (list of tuples of (str, int)) A list of tuples containing the IP address and TCP port to check.
+    :param exclude_port_list: (list of int) A list of TCP ports to exclude from the check.
     """
-    destination = None  # (host, port)
+    target_list = None  # (host, port)
+    exclude_port_list = None  # [port1, port2, ...]
 
-    def __init__(self, destination=None):
+    # Items in list are tuples in this format:
+    #   ((str, int), str, int)
+    # Example:
+    #   [((host, port), status, return_code),
+    #    ((host, port), status, return_code),
+    #    ...]
+    result_list = []
+
+    def __init__(self, ip_tcp_list=None, exclude_port_list=None):
         super().__init__(HCEnum.TCP.value)
 
-        if destination is None:
-            self._raise_exception("Destination is None.")
-        self.destination = destination
+        self.target_list = ip_tcp_list
+
+        if exclude_port_list is None:
+            self.exclude_port_list = []
+        else:
+            self.exclude_port_list = exclude_port_list
 
     def run_check(self, include_data_details=False):
         """
         This overrides the base class method.
-        Check the remote TCP port.
+        Check the remote TCP port of each target passed in.
         :param include_data_details: (bool) True to populate the data dictionary with script details, False otherwise.
         :return: (int) The return code of the script.
         """
-        socket_obj = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        socket_obj.settimeout(2)
-        return_code = socket_obj.connect_ex(self.destination)
-
-        if return_code == 0:
-            self.set_status(self.status_success())
-            socket_obj.close()
+        self.result_list = []
+        self.set_status(self.status_success())  # Assume success until a failure is found.
+        if self.target_list is None:
+            self._last_return_code = 0
         else:
-            self.set_status(self.status_failure())
-            socket_obj.close()
+            for target in self.target_list:
+                if target[1] not in self.exclude_port_list:
+                    socket_obj = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    socket_obj.settimeout(2)
+                    return_code = socket_obj.connect_ex(target)
+                    if return_code == 0:
+                        self.result_list.append((target, self.status_success(), return_code))
+                    else:
+                        self.result_list.append((target, self.status_failure(), return_code))
+                    socket_obj.close()
+                else:
+                    self.result_list.append((target, self.status_success(), 0))
+
+        # If any TCP checks failed then the overall check failed.
+        success_found = False
+        failure_found = False
+        failure_code = None
+        for result in self.result_list:
+            self._last_return_code = result[2]
+            if result[1] == self.status_failure():
+                self.set_status(self.status_failure())
+                failure_found = True
+                failure_code = result[2]
+            else:
+                success_found = True
+
+        if failure_found:
+            self._last_return_code = failure_code
+
+        if success_found and failure_found:
+            self.set_status(self.status_degraded())
+            self.set_msg("Some TCP checks failed.")
 
         if include_data_details:
-            self._last_return_code = return_code
-            self.data = {"script": {
+            self.data = {
+                "tcp_check": {
                     "return_code": self._last_return_code,
-                    "output": ""
+                    "tcp_internal_ports": self.result_list,
+                    "tcp_external_ports": []
                 }
             }
 
-        return return_code
+        return self._last_return_code
 
     def is_successful(self, include_data_details=False):
         """
@@ -450,6 +510,8 @@ class HealthCheckReady(HealthCheckTypes):
 
         if self._msg is not None:
             return_dict["msg"] = self._msg
+        else:
+            return_dict["msg"] = ""
 
         if self.data:
             return_dict["data"] = self.data
@@ -496,6 +558,8 @@ class HealthCheckHealth(HealthCheckTypes):
 
         if self._msg is not None:
             return_dict["msg"] = self._msg
+        else:
+            return_dict["msg"] = ""
 
         if self.data:
             return_dict["data"] = self.data

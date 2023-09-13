@@ -19,14 +19,13 @@ import json
 import platform
 import configparser
 
-from datetime import datetime, timezone, date  # pylint: disable=import-error,wrong-import-order
+from datetime import date  # pylint: disable=import-error,wrong-import-order
 from time import sleep  # pylint: disable=import-error,wrong-import-order
 from health_check_types import (HealthCheckVersion, HealthCheckTcp,  # pylint: disable=import-error,wrong-import-order
                                 HealthCheckLive, HealthCheckReady, HealthCheckHealth, HealthCheckFavicon,
                                 HealthCheckUnknown)
 from health_check_types import HealthCheckTypes as HC  # pylint: disable=import-error,wrong-import-order
-from health_check_util import HealthCheckUtil  # pylint: disable=import-error,wrong-import-order
-from health_check_util import LogLevel  # pylint: disable=import-error,wrong-import-order
+from health_check_util import (LogLevel, HealthCheckUtil)  # pylint: disable=import-error,wrong-import-order
 
 
 class HealthCheckService:  # pylint: disable=too-many-instance-attributes
@@ -41,7 +40,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
     """
 
     # Constants.
-    _VERSION = "1.63"
+    _VERSION = "1.87"
     _current_year = date.today().year
     _copyright = f"(C) {_current_year}"
     _service_name = "Health Check Service"
@@ -71,11 +70,15 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
     config = None
     favicon_path = f"{INSTALL_DIR}/favicon.ico"  # Default, but can get overwritten by config file or passed in param.
     monitored_service_name = None  # The name of the "patient" that the health check is for.
+    show_config_on_startup = True  # Outputs all the config parameters upon startup.
+    tcp_check_internal_ports = []  # List of internal TCP ports to check.
+    tcp_check_external_ports = []  # List of external TCP ports to check.
 
-    def __init__(self,  # pylint: disable=too-many-branches,too-many-statements,too-many-arguments
+    def __init__(self,  # pylint: disable=too-many-branches,too-many-statements,too-many-arguments,too-many-locals
                  listen_ip=None, listen_port=None, retry_count=None, log_level=None, live_check_script=None,
                  ready_check_script=None, health_check_script=None, include_data_details=False, config_file=None,
-                 favicon_path=None, monitored_service_name=None):
+                 favicon_path=None, monitored_service_name=None, show_config_on_startup=True,
+                 tcp_check_internal_ports=None, tcp_check_external_ports=None):
         """
         Constructor.
 
@@ -108,6 +111,12 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
         :param monitored_service_name: (str) The name of the "service" that the health check is for.
             This should be something like the name of the microservice that is being health checked.
             This name will be included in the health check responses.
+
+        :param show_config_on_startup: (bool) If True, then show the config parameters on startup.
+
+        :param tcp_check_internal_ports: (list of int) List of internal TCP ports to check.
+
+        :param tcp_check_external_ports: (list of int) List of external TCP ports to check.
         """
 
         super().__init__()
@@ -161,6 +170,15 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
                                  f'    {self.DEFAULT_CONFIG_FILE}\n'
                                  f'    {os.path.dirname(os.path.abspath(__file__))}/{self.CONFIG_FILE_NAME}\n')
 
+        parser.add_argument('--show_config_on_startup', dest='show_config_on_startup',
+                            action="store_true", default=True, help='Show the config parameters on startup.\n')
+
+        parser.add_argument('--tcp_check_internal_ports', dest='tcp_check_internal_ports', action="append",
+                            help='List of internal TCP ports to check.\n')
+
+        parser.add_argument('--tcp_check_external_ports', dest='tcp_check_external_ports', action="append",
+                            help='List of external TCP ports to check.\n')
+
         try:
             self.options, _ = parser.parse_known_args(sys.argv[:])
         except Exception as exc:  # pylint: disable=broad-except
@@ -183,8 +201,6 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
                 else:
                     if os.path.isfile(os.path.abspath(self.DEFAULT_CONFIG_FILE)):
                         self.config_file = os.path.abspath(self.DEFAULT_CONFIG_FILE)
-                    else:
-                        self.config_file = None
 
         # pylint: disable=too-many-nested-blocks,too-many-boolean-expressions
         if self.config_file and os.path.isfile(self.config_file) and os.access(self.config_file, os.R_OK):
@@ -192,9 +208,9 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
             self.config.read(self.config_file)
             self.process_config_params()
         else:
-            self._log(msg=f'Config file [{self.config_file}] does not exist or cannot be read.',
+            self._log(msg=f'Config file [{self.config_file}] does not exist or cannot be read. '
+                          'Will use passed in parameters or attempting to run with default parameters.',
                       level=LogLevel.WARNING)
-            self._log(msg='Attempting to run with default parameters.', level=LogLevel.WARNING)
 
         if self.options.log_level is not None:
             if "DEBUG" in self.options.log_level[0].upper():
@@ -236,10 +252,10 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
             self.listen_port = int(self.options.listen_port[0])
         else:
             if listen_port is not None:
-                self.listen_port = listen_port
+                self.listen_port = int(listen_port)
 
         if retry_count is not None:
-            self.retry_count = retry_count
+            self.retry_count = int(retry_count)
 
         if self.options.live_check_script is not None:
             self.live_check_script = self.options.live_check_script[0]
@@ -286,7 +302,29 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
         if favicon_path is not None:
             self.favicon_path = favicon_path
 
-    def process_config_params(self):  # pylint: disable=too-many-branches
+        if self.options.show_config_on_startup is not None:
+            self.show_config_on_startup = self.options.show_config_on_startup
+        else:
+            if show_config_on_startup is not None:
+                self.show_config_on_startup = show_config_on_startup
+
+        if self.options.tcp_check_internal_ports is not None:
+            self.tcp_check_internal_ports = self.options.tcp_check_internal_ports
+        else:
+            if tcp_check_internal_ports is not None:
+                if tcp_check_internal_ports != "":
+                    for port in tcp_check_internal_ports.split(","):
+                        self.tcp_check_internal_ports.append(int(port))
+
+        if self.options.tcp_check_external_ports is not None:
+            self.tcp_check_external_ports = self.options.tcp_check_external_ports
+        else:
+            if tcp_check_external_ports is not None:
+                if tcp_check_external_ports != "":
+                    for port in tcp_check_external_ports.split(","):
+                        self.tcp_check_external_ports.append(int(port))
+
+    def process_config_params(self):  # pylint: disable=too-many-branches,too-many-statements
         """
         Update class variables with values from the config file.
         """
@@ -336,8 +374,43 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
                     self.favicon_path = value
                 elif key == "monitored_service_name":
                     self.monitored_service_name = value
+                elif key == "show_config_on_startup":
+                    if "true" in value.lower():
+                        self.show_config_on_startup = True
+                    else:
+                        self.show_config_on_startup = False
+                elif key == "tcp_check_internal_ports":
+                    if 'None' in value or value == "":
+                        self.tcp_check_internal_ports = []
+                    else:
+                        for port in value.split(","):
+                            self.tcp_check_internal_ports.append(int(port))
+                elif key == "tcp_check_external_ports":
+                    if 'None' in value or value == "":
+                        self.tcp_check_external_ports = []
+                    else:
+                        for port in value.split(","):
+                            self.tcp_check_external_ports.append(int(port))
                 else:
                     self._log(msg=f'Unknown config file parameter "{key}"', level=LogLevel.WARNING)
+
+    def show_config(self):
+        """
+        Shows the config parameters.
+        """
+        self._log(msg=f"Config file: {self.config_file}", level=LogLevel.INFO)
+        self._log(msg=f"listen_ip: {self.listen_ip}", level=LogLevel.INFO)
+        self._log(msg=f"listen_port: {self.listen_port}", level=LogLevel.INFO)
+        self._log(msg=f"retry_count: {self.retry_count}", level=LogLevel.INFO)
+        self._log(msg=f"retry_wait_time: {self.retry_wait_time}", level=LogLevel.INFO)
+        self._log(msg=f"log_level: {self.log_level_default}", level=LogLevel.INFO)
+        self._log(msg=f"live_check_script: {self.live_check_script}", level=LogLevel.INFO)
+        self._log(msg=f"ready_check_script: {self.ready_check_script}", level=LogLevel.INFO)
+        self._log(msg=f"health_check_script: {self.health_check_script}", level=LogLevel.INFO)
+        self._log(msg=f"include_data_details: {self.include_data_details}", level=LogLevel.INFO)
+        self._log(msg=f"favicon_path: {self.favicon_path}", level=LogLevel.INFO)
+        self._log(msg=f"monitored_service_name: {self.monitored_service_name}", level=LogLevel.INFO)
+        self._log(msg=f"show_config_on_startup: {self.show_config_on_startup}", level=LogLevel.INFO)
 
     @staticmethod
     def find_len_of_longest_log_level_name():
@@ -370,10 +443,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
 
         if level is not None and level.value[0] >= self.log_level_default.value[0]:
             if show_prefix:
-                # Generate an ISO 8601 conformant date-time stamp for the current time which also includes the timezone.
-                datetime_iso8601 = datetime.now(timezone.utc).astimezone().isoformat()
-                # Remove colons from the time stamp to make it compatible with Windows when used in a file name.
-                datetime_iso8601.replace(':', '')
+                datetime_iso8601 = HealthCheckUtil.get_iso8601_time_stamp(remove_colons=True)
                 # Add logging level into a fixed with string with the max length of the longest log level name.
                 _log_level = f"[{level.value[1]}]"
                 msg = f"{datetime_iso8601} {_log_level:<{self._log_level_name_max_length+2}}: {msg}"
@@ -453,22 +523,33 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
         http_response_msg = b"OK"
         return hc_version, http_response_code, http_response_msg
 
-    def do_tcp_check(self):
+    def do_tcp_check(self, include_data_details=False):
         """
-        Performs a TCP check. Returns a status of "UP" if the TCP port is open or "DOWN" if the TCP port is closed.
+        Performs a TCP check. Returns a status of "UP" if the TCP ports are open or "DOWN" if the TCP ports are closed.
 
-        :return: (HealthCheckTcp) The TCP check object.
+        :param include_data_details: (bool) If True, then include data details in the health check script responses.
+
+        :return: (3-tuple of HealthCheckTcp, bytearray, bytearray) The TCP check object, http response code,
+            and http response message.
         """
-        # Test the port of this service.
-        # NOTE: It will obviously be successfully since this code is running.
-        #       The HealthCheckTcp is more useful when it is used by health_check_client.py.
-        srv_target = ("127.0.0.1", self.listen_port)
-        hc_tcp = HealthCheckTcp(destination=srv_target)
-        # Don't actually run the check because it will cause an infinite loop.
-        # Just set the status to "success" and return.
-        # Since this service is obviously running we don't need to actually check it.
-        hc_tcp.set_status(hc_tcp.status_success())
-        return hc_tcp
+        # Since we're testing the "internal" ports we'll use the local IP address.
+        host = "127.0.0.1"
+        ip_tcp_list = []
+        for port in self.tcp_check_internal_ports:
+            ip_tcp_list.append((host, port))
+
+        hc_tcp = HealthCheckTcp(ip_tcp_list=ip_tcp_list, exclude_port_list=[self.listen_port])
+        hc_tcp.run_check(include_data_details=True)
+        hc_tcp.get_status_dict()
+        hc_tcp.data["tcp_check"]["tcp_external_ports"] = self.tcp_check_external_ports
+        if hc_tcp.is_up():
+            http_response_code = b"200"
+            http_response_msg = b"OK"
+        else:
+            http_response_code = b"503"
+            http_response_msg = b"Service Unavailable"
+
+        return hc_tcp, http_response_code, http_response_msg
 
     def do_live_check(self, include_data_details=False):
         """
@@ -477,7 +558,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
 
         :param include_data_details: (bool) If True, then include data details in the health check script responses.
 
-        :return: (3-tuple of HealthCheckLive, bytearray, bytearray) The live check object, http response code,
+        :return: (3-tuple of HealthCheckLive, bytearray, bytearray) The LIVE check object, http response code,
             and http response message.
         """
         hc_live = HealthCheckLive(run_script=self.live_check_script)
@@ -501,7 +582,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
 
         :param include_data_details: (bool) If True, then include data details in the health check script responses.
 
-        :return: (3-tuple of HealthCheckReady, bytearray, bytearray) The ready check object, http response code,
+        :return: (3-tuple of HealthCheckReady, bytearray, bytearray) The READY check object, http response code,
             and http response message.
         """
         # First do a "live" check.
@@ -530,7 +611,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
 
         :param include_data_details: (bool) If True, then include data details in the health check script responses.
 
-        :return: (3-tuple of HealthCheckHealth, bytearray, bytearray) The health check object, http response code,
+        :return: (3-tuple of HealthCheckHealth, bytearray, bytearray) The HEALTH check object, http response code,
             and http response message.
         """
         # First do a "ready" check (which in turn will also do a "live" check).
@@ -549,6 +630,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
         else:
             self._log(msg=f"hc_health object: \n{hc_health.pretty_str()}", level=LogLevel.DEBUG)
             hc_health.set_status(hc_health.status_failure())
+            hc_health.build_status_dict()
             hc_health.set_msg(f'Received a {hc_ready.get_status()} status from the {hc_ready.name()} check '
                               f'with message: [{hc_ready.get_status_dict()["msg"]}],')
 
@@ -599,8 +681,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
 
                 if data is None or data == b'':
                     # Handle the request as a TCP only with no payload.
-                    self._log(msg=f'Status: "{self.do_tcp_check().get_status_dict()["status"]}"',
-                              level=LogLevel.INFO)
+                    self._log(msg='Status: "UP" (TCP)', level=LogLevel.INFO)
                 else:
                     # How many data bytes do we have?
                     if len(data) < 4:
@@ -667,6 +748,11 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
 
                             elif data.startswith(f"GET {HC.get_live_endpoint()}"):
                                 check_obj, http_response_code, http_response_msg = self.do_live_check(_details)
+                                # Merge the health check data with the default http_body dict.
+                                http_body = {**http_body, **check_obj.get_status_dict()}
+
+                            elif data.startswith(f"GET {HC.get_tcp_endpoint()}"):
+                                check_obj, http_response_code, http_response_msg = self.do_tcp_check(_details)
                                 # Merge the health check data with the default http_body dict.
                                 http_body = {**http_body, **check_obj.get_status_dict()}
 
@@ -793,6 +879,9 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
         :return:
         """
         self.show_banner()
+
+        if self.show_config_on_startup:
+            self.show_config()
 
         self._log(msg=f"Config file: {self.config_file}", indent_level=0, show_prefix=False)
         self._log(msg=f"Log level: {self.log_level_default.value[1]}", indent_level=0, show_prefix=False)

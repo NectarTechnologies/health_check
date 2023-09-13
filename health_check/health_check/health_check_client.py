@@ -16,13 +16,13 @@ import json
 import configparser
 import time
 
-from datetime import datetime, timezone, date  # pylint: disable=import-error,wrong-import-order
+from datetime import date  # pylint: disable=import-error,wrong-import-order
 from time import sleep  # pylint: disable=import-error,wrong-import-order
 from health_check_types import (HealthCheckVersion, HealthCheckTcp,  # pylint: disable=import-error,wrong-import-order
                                 HealthCheckLive, HealthCheckReady, HealthCheckHealth, HealthCheckFavicon,
                                 HealthCheckTypes, HealthCheckIcmp)
 from health_check_types_enum import HealthCheckTypesEnum as HCEnum  # pylint: disable=import-error,wrong-import-order
-from health_check_util import LogLevel  # pylint: disable=import-error,wrong-import-order
+from health_check_util import (LogLevel, HealthCheckUtil)  # pylint: disable=import-error,wrong-import-order
 
 
 class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
@@ -37,14 +37,14 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
     """
 
     # Constants.
-    _VERSION = "1.37"
+    _VERSION = "1.77"
     _current_year = date.today().year
     _copyright = f"(C) {_current_year}"
     _service_name = "Health Check Client"
     shutdown_msg = f"{_service_name} shutting down."
     http_header_delimiter = b"\r\n"
     CONFIG_FILE_NAME = "health_check.conf"
-    DEFAULT_CONFIG_FILE = f"/etc/health_check/{CONFIG_FILE_NAME}"
+    DEFAULT_CONFIG_FILE = os.path.join("/etc", "health_check", CONFIG_FILE_NAME)
 
     # Variables that can be passed into __init__().
     remote_host = None
@@ -62,7 +62,6 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
     server_ip_addr = None
     remote_server = None  # A tuple of (remote_host, remote_port) where remote_host can be a hostname or IP address.
     retry_wait_time = 3  # seconds
-    current_try_count = 0  # current try count
     _log_level_name_max_length = 0  # length of longest log level name
     log_level_default = LogLevel.INFO  # default log level
     options = None  # command line options
@@ -70,6 +69,8 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
     _current_health_check_type = HCEnum.TCP  # Default to TCP health check.
     include_data_details = None  # include data details in the health check script responses
     config_file = DEFAULT_CONFIG_FILE
+    show_config_on_startup = False  # Outputs all the config parameters upon startup.
+    no_output_only_exit_code = True  # If False, then only return the return exit code and no other output.
 
     retryable_errors = (
         socket.error,
@@ -89,7 +90,9 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
                  check_favicon=None,
                  check_server_version=None,
                  include_data_details=None,
-                 config_file=None):
+                 config_file=None,
+                 show_config_on_startup=False,
+                 no_output_only_exit_code=True):
         """
         Constructor.
 
@@ -137,6 +140,10 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
             health check responses.
 
         :param config_file: (str) Path to the config file.
+
+        :param show_config_on_startup: (bool) If True, then output all the config parameters upon startup.
+
+        :param no_output_only_exit_code: (bool) If False, then only return the return exit code and no other output.
         """
 
         super().__init__()
@@ -189,6 +196,9 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
                             default=None,
                             help='If True, then check that the HTTP endpoint "/health" returns "HEALTHY".\n')
 
+        parser.add_argument('-o', '--list_config', dest='list_config', action="store_true",
+                            help='Display the current config parameters.\n')
+
         parser.add_argument('--include_data_details', dest='include_data_details', action="store_true",
                             default=False, help='Include data details of the health check script(s) in the health \n'
                                                 'check responses. Can also be controlled via a query string \n'
@@ -201,6 +211,12 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
                                  'the top path first:\n'
                                  f'    {self.DEFAULT_CONFIG_FILE}\n'
                                  f'    {os.path.dirname(os.path.abspath(__file__))}/{self.CONFIG_FILE_NAME}\n')
+
+        parser.add_argument('--show_config_on_startup', dest='show_config_on_startup', action="store_true",
+                            default=False, help='Output all the config parameters upon startup.\n')
+
+        parser.add_argument('--no_output_only_exit_code', dest='no_output_only_exit_code', action="store_true",
+                            default=None, help='If False, then only return the return exit code and no other output.\n')
 
         try:
             self.options, _ = parser.parse_known_args(sys.argv[:])
@@ -224,8 +240,6 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
                 else:
                     if os.path.isfile(os.path.abspath(self.DEFAULT_CONFIG_FILE)):
                         self.config_file = os.path.abspath(self.DEFAULT_CONFIG_FILE)
-                    else:
-                        self.config_file = None
 
         # pylint: disable=too-many-nested-blocks,too-many-boolean-expressions
         if self.config_file and os.path.isfile(self.config_file) and os.access(self.config_file, os.R_OK):
@@ -233,9 +247,9 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
             self.config.read(self.config_file)
             self.process_config_params()
         else:
-            self._log(msg=f'Config file [{self.config_file}] does not exist or cannot be read.',
+            self._log(msg=f'Config file [{self.config_file}] does not exist or cannot be read. '
+                          'Will use passed in parameters or attempting to run with default parameters.',
                       level=LogLevel.WARNING)
-            self._log(msg='Attempting to run with default parameters.', level=LogLevel.WARNING)
 
         if self.options.log_level is not None:
             if "DEBUG" in self.options.log_level[0].upper():
@@ -274,61 +288,78 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
             self.remote_port = int(self.options.remote_port[0])
         else:
             if remote_port is not None:
-                self.remote_port = remote_port
+                self.remote_port = int(remote_port)
 
         if self.options.retry_count is not None:
             self.retry_count = int(self.options.retry_count[0])
         else:
             if retry_count is not None:
-                self.retry_count = retry_count
+                self.retry_count = int(retry_count)
 
         if self.options.check_icmp is not None:
             self.check_icmp = self.options.check_icmp
         else:
             if check_icmp is not None:
-                self.check_icmp = check_icmp
+                self.check_icmp = bool(check_icmp)
 
         if self.options.check_tcp is not None:
             self.check_tcp = self.options.check_tcp
         else:
             if check_tcp is not None:
-                self.check_tcp = check_tcp
+                self.check_tcp = bool(check_tcp)
 
         if self.options.check_live is not None:
             self.check_live = self.options.check_live
         else:
             if check_live is not None:
-                self.check_live = check_live
+                self.check_live = bool(check_live)
 
         if self.options.check_ready is not None:
             self.check_ready = self.options.check_ready
         else:
             if check_ready is not None:
-                self.check_ready = check_ready
+                self.check_ready = bool(check_ready)
 
         if self.options.check_health is not None:
             self.check_health = self.options.check_health
         else:
             if check_health is not None:
-                self.check_health = check_health
+                self.check_health = bool(check_health)
 
         if self.options.check_favicon is not None:
             self.check_favicon = self.options.check_favicon
         else:
             if check_favicon is not None:
-                self.check_favicon = check_favicon
+                self.check_favicon = bool(check_favicon)
 
         if self.options.show_server_version:
             self.check_server_version = True
         else:
             if check_server_version is not None:
-                self.check_server_version = check_server_version
+                self.check_server_version = bool(check_server_version)
 
         if self.options.include_data_details is not None:
             self.include_data_details = self.options.include_data_details
         else:
             if include_data_details is not None:
-                self.include_data_details = include_data_details
+                self.include_data_details = bool(include_data_details)
+
+        if self.options.show_config_on_startup is not None:
+            self.show_config_on_startup = self.options.show_config_on_startup
+        else:
+            if show_config_on_startup is not None:
+                self.show_config_on_startup = bool(show_config_on_startup)
+
+        if self.options.no_output_only_exit_code is not None:
+            self.no_output_only_exit_code = self.options.no_output_only_exit_code
+        else:
+            if no_output_only_exit_code is not None:
+                self.no_output_only_exit_code = bool(no_output_only_exit_code)
+
+        if self.options.list_config is True:
+            self.no_output_only_exit_code = False
+            self.show_config()
+            sys.exit(0)
 
         # If all health check types are False, then default to TCP health check.
         # pylint: disable=too-many-boolean-expressions
@@ -381,8 +412,27 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
                         self.include_data_details = True
                     else:
                         self.include_data_details = False
+                elif key == "show_config_on_startup":
+                    if "true" in value.lower():
+                        self.show_config_on_startup = True
+                    else:
+                        self.show_config_on_startup = False
                 else:
                     self._log(msg=f'Unknown config file parameter "{key}"', level=LogLevel.WARNING)
+
+    def show_config(self):
+        """
+        Shows the config parameters.
+        """
+        self._log(msg="Config Parameters:")
+        self._log(msg=f"    config_file: {self.config_file}")
+        self._log(msg=f"    remote_host: {self.remote_host}")
+        self._log(msg=f"    remote_port: {self.remote_port}")
+        self._log(msg=f"    retry_count: {self.retry_count}")
+        self._log(msg=f"    retry_wait_time: {self.retry_wait_time}")
+        self._log(msg=f"    log_level: {self.log_level_default.name}")
+        self._log(msg=f"    include_data_details: {self.include_data_details}")
+        self._log(msg=f"    show_config_on_startup: {self.show_config_on_startup}")
 
     @staticmethod
     def find_len_of_longest_log_level_name():
@@ -409,9 +459,9 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
         if msg is None:
             msg = ""
 
-        if isinstance(msg, dict):
-            # Convert the dict to a str.
-            msg = str(msg)
+        # if isinstance(msg, dict):
+        #     # Convert the dict to a str.
+        #     msg = str(msg)
 
         if indent_level > 0:
             indent = "    " * indent_level
@@ -422,17 +472,15 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
 
         if level is not None and level.value[0] >= self.log_level_default.value[0]:
             if show_prefix:
-                # Generate an ISO 8601 conformant date-time stamp for the current time which
-                # also includes the timezone.
-                datetime_iso8601 = datetime.now(timezone.utc).astimezone().isoformat()
-                # Remove colons from the time stamp to make it compatible with Windows when used in a file name.
-                datetime_iso8601.replace(':', '')
+                datetime_iso8601 = HealthCheckUtil.get_iso8601_time_stamp(remove_colons=True)
                 # Add logging level into a fixed with string with the max length of the longest log level name.
                 _log_level = f"[{level.value[1]}]"
                 msg = f"{datetime_iso8601} {_log_level:<{self._log_level_name_max_length+2}}: {msg}"
             else:
                 msg = f"{msg}"
-            print(msg)
+
+            if not self.no_output_only_exit_code:
+                print(msg)
 
     def show_connecting_message(self):
         """
@@ -493,14 +541,6 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
             self._log(msg=response_msg_json, level=LogLevel.INFO)
             return hc_type.get_return_code()
 
-        if self.check_tcp:
-            hc_type = HealthCheckTcp(destination=self.remote_server)
-            hc_type.run_check(include_data_details=True)
-            response_msg = hc_type.get_status_dict()
-            response_msg_json = json.dumps(response_msg, indent=4)
-            self._log(msg=response_msg_json, level=LogLevel.INFO)
-            return hc_type.get_return_code()
-
         http_header_request_method = b'GET '
         http_header_request_endpoint = b''
         http_header_request_version = b' HTTP/1.1\r\n'
@@ -514,10 +554,27 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
             http_header_request_host = b'Host: ' + self.remote_server[0].encode() + b'\r\n'
 
         try:
-            # Connect to the server.
-            self.sock.connect(self.remote_server)
+            try:
+                # Connect to the server.
+                self.sock.connect(self.remote_server)
+            except Exception as exc:
+                response_msg["status"] = "DOWN"
+                if "Connection refused" in str(exc):
+                    response_msg["msg"] = f'Connection refused to "{self.remote_server}"'
+                else:
+                    response_msg["msg"] = f'Health Check Service not reachable: "{self.remote_server}"'
+                response_msg["last_check_time"] = HealthCheckTypes.get_timestamp()
+                response_msg["last_check_time_epoch"] = time.time()
+                response_msg_json = json.dumps(response_msg, indent=4)
+                self._log(msg=response_msg_json, level=LogLevel.ERROR)
+                return 1
 
-            if self.check_live:
+            if self.check_tcp:
+                hc_type = HealthCheckTcp()
+                response_msg["health_check_type"] = hc_type.name()
+                http_header_request_endpoint = f"{hc_type.endpoint()}".encode()
+
+            elif self.check_live:
                 hc_type = HealthCheckLive()
                 response_msg["health_check_type"] = hc_type.name()
                 http_header_request_endpoint = f"{hc_type.endpoint()}".encode()
@@ -576,6 +633,8 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
                 response_msg_json = json.dumps(response_msg, indent=4)
                 self._log(msg=response_msg_json, level=LogLevel.ERROR)
                 if hc_type is not None:
+                    hc_type.set_status(hc_type.status_failure())
+                    hc_type.set_return_code(1)
                     hc_type.get_status_dict()
                     return hc_type.get_return_code()
 
@@ -587,6 +646,70 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
             # Convert the HTTP header to a string.
             http_response_header = http_response_header.decode()
 
+            # Convert the HTTP header to a dict.
+            http_response_header_list = http_response_header.split('\r\n')
+            http_response_header_dict = {}
+            for http_response_header_item in http_response_header_list:
+                if http_response_header_item != '':
+                    if ': ' in http_response_header_item:
+                        http_response_header_item_key, http_response_header_item_value = \
+                            http_response_header_item.split(': ', 1)
+                        http_response_header_dict[http_response_header_item_key] = http_response_header_item_value
+                    else:
+                        if 'HTTP/' in http_response_header_item:
+                            http_response_header_dict['http_version'] = (
+                                http_response_header_item.split('/')[1].split(' '))[0]
+                            http_response_header_dict['response_code'] = http_response_header_item.split(' ')[1]
+                            http_response_header_dict['response_msg'] = http_response_header_item.split(' ')[2]
+                        else:
+                            if 'unknown' in http_response_header_dict:
+                                http_response_header_dict['unknown'].append(http_response_header_item)
+                            http_response_header_dict['unknown'] = [http_response_header_item]
+
+            # Check if the HTTP response code is 200.
+            if http_response_header_dict['response_code'] == '200':
+                hc_type.set_status(hc_type.status_success())
+                hc_type.set_return_code(0)
+            else:
+                hc_type.set_status(hc_type.status_failure())
+                hc_type.set_return_code(1)
+
+            if self.check_tcp:  # pylint: disable=too-many-nested-blocks
+                if 'Content-Type' in http_response_header_dict:
+                    if http_response_header_dict['Content-Type'] == 'application/json':
+                        try:
+                            # Attempt to convert the JSON to a dictionary.
+                            _http_response_body = http_response_body.decode()
+                            _http_response_body = json.loads(_http_response_body)
+                        except json.decoder.JSONDecodeError:
+                            err_msg = "Could not decode JSON data from health check response."
+                            self._log(msg=f"{err_msg}: [{http_response_body}]", level=LogLevel.ERROR)
+                        else:
+                            # Check if the health check response contains the "tcp_external_ports" key.
+                            if "tcp_external_ports" in _http_response_body["data"]["tcp_check"]:
+                                # The health_check_service only checked the "internal" TCP ports
+                                # and will return the status for each internal port along with
+                                # a list of "external" TCP ports that should be checked by the
+                                # health_check_client. So first step is to parse the list of
+                                # external ports from the response from the server.
+                                external_ports_list = \
+                                    _http_response_body["data"]["tcp_check"]["tcp_external_ports"]
+
+                                # Now that we have the list of external TCP ports to check, we'll
+                                # need to check each one of them.
+                                ext_ip_port_list = []
+                                for external_port in external_ports_list:
+                                    ext_ip_port_list.append((self.remote_server[0], external_port))
+
+                                _hc_type = HealthCheckTcp(ip_tcp_list=ext_ip_port_list)
+                                _hc_type.run_check(include_data_details=True)
+                                ext_dict = _hc_type.get_status_dict()
+
+                                _http_response_body["data"]["tcp_check"]["tcp_external_ports"] = \
+                                    ext_dict["data"]["tcp_check"]["tcp_internal_ports"]
+                                http_response_body = json.dumps(_http_response_body, indent=4)
+
+
             if self.check_favicon:
                 # Check if the favicon.ico file was returned.
                 if "Content-Type: image/x-icon" in http_response_header:
@@ -597,8 +720,10 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
                 self._log(msg=response_msg_json, level=LogLevel.INFO)
 
             else:
-                # Convert the HTTP body to a string.
-                http_response_body = http_response_body.decode()
+                # Check if http_response_body is a string
+                if not isinstance(http_response_body, str):
+                    # Convert the HTTP body to a string.
+                    http_response_body = http_response_body.decode()
                 self._log(msg=f"{http_response_body}", level=LogLevel.INFO)
 
         except KeyboardInterrupt:
@@ -608,6 +733,9 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
             self._log(msg="Encountered unknown exception: {exc}", level=LogLevel.ERROR)
             raise exc
 
+        if hc_type is not None:
+            return_code = hc_type.get_return_code()
+
         return return_code
 
     def run(self):  # pylint: disable=too-many-branches,too-many-statements
@@ -615,11 +743,15 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
         Runs the client.  Will retry up to retry_count times if connection to server fails.
         :return: (int) Return code of the health check. 0 = success, non-zero = failure.
         """
-        return_code = None
-        while self.current_try_count < self.retry_count:
-            try:
-                self.current_try_count = self.current_try_count + 1
+        if self.show_config_on_startup or self.log_level_default == LogLevel.DEBUG:
+            self.show_config()
 
+        return_code = None
+        success = False
+        current_try_count = 0
+
+        while current_try_count <= self.retry_count:
+            try:
                 self._log(msg="Creating TCP/IP socket.", level=LogLevel.DEBUG)
                 self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
@@ -635,9 +767,11 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
                     self.remote_server = (self.server_ip_addr, self.remote_port)
 
                 return_code = self.do_health_check()
+                success = True
                 break
 
             except self.retryable_errors as exc:
+                current_try_count = current_try_count + 1
                 msg = f"Cannot perform health check (retrying in {self.retry_wait_time} seconds)."
                 if self.log_level_default == LogLevel.DEBUG:
                     self._log(msg=msg + f"\n{traceback.format_exc()}", level=LogLevel.ERROR)
@@ -668,7 +802,7 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
             finally:
                 self.sock.close()
 
-        if self.current_try_count >= self.retry_count:
+        if not success:
             self._log(msg=f"Unable to connect to {self.remote_server[0]} port {self.remote_server[1]}",
                       level=LogLevel.ERROR)
             return_code = 1

@@ -5,7 +5,7 @@
 
 SCRIPT_PATH=$(cd "$(dirname "${0}")" && pwd)
 SCRIPT_NAME=$(basename "${0}")
-VERSION="1.32"
+VERSION="1.36"
 COPYRIGHT_YEAR=$(date +%Y)
 SERVICE_DISPLAY_NAME="Health Check Service"
 SERVICE_NAME="health_check"
@@ -14,6 +14,7 @@ CONF_DIR="/etc/${SERVICE_NAME}"
 INSTALL_DIR="/opt/${SERVICE_NAME}"
 CHECK_SCRIPTS_DIR="${INSTALL_DIR}/check_scripts"
 IGNORE_SERVICE_START_FAILURES="false"
+NO_WAIT_TIME_OUT="false"
 EXTRA_ARGS=""
 
 SERVICE_SCRIPT_DIR="/etc/init.d"
@@ -76,6 +77,9 @@ while (( "$#" )); do
         -i|--ignore_service_start_failures)
             IGNORE_SERVICE_START_FAILURES="true"
             shift;;
+        -n|--no_wait_timeout)
+            NO_WAIT_TIME_OUT="true"
+            shift;;
         -v|--version)
             show_banner
             shift;;
@@ -97,7 +101,7 @@ echo ""
 check_dir "${INSTALL_DIR}/"
 echo "Coping files to ${INSTALL_DIR}/"
 cp ${SCRIPT_PATH}/favicon.ico ${INSTALL_DIR}/
-cp ${SCRIPT_PATH}/health_check*.py ${INSTALL_DIR}/
+cp ${SCRIPT_PATH}/health_check* ${INSTALL_DIR}/
 check_dir "${CHECK_SCRIPTS_DIR}"
 cp ${SCRIPT_PATH}/check_scripts/* ${CHECK_SCRIPTS_DIR}/
 echo "Setting 'execute' permissions on: ${CHECK_SCRIPTS_DIR}/*"
@@ -135,7 +139,12 @@ else
     echo ""
     if [[ "${IGNORE_SERVICE_START_FAILURES}" == "true" ]]; then
         echo "Ignoring service start failures."
-        EXTRA_ARGS="ignore_service_start_failures"
+        EXTRA_ARGS="${EXTRA_ARGS} --ignore_service_start_failures"
+    fi
+
+    if [[ "${NO_WAIT_TIME_OUT}" == "true" ]]; then
+        echo "Setting start wait to zero."
+        EXTRA_ARGS="${EXTRA_ARGS} --no_wait_timeout"
     fi
     service ${SERVICE_SCRIPT_DST_NAME} start ${EXTRA_ARGS}
     if [[ $? -ne 0 ]]; then

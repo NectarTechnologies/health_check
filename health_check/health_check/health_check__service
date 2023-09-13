@@ -10,7 +10,7 @@
 ### END INIT INFO
 
 SCRIPT_NAME=$(basename "${0}")
-VERSION="1.44"
+VERSION="1.51"
 SERVICE_DISPLAY_NAME="Health Check Service"
 SERVICE_NAME="health_check"
 TMUX_SESSION_NAME="${SERVICE_NAME}_service"
@@ -27,31 +27,34 @@ START=0 # 0 for False, 1 for True.
 TURN_OFF_SINGLE_LINE_TIMEOUT_COUNTDOWN=0 # 0 for False, 1 for True.
 IGNORE_SERVICE_START_FAILURES=0 # 0 for False, 1 for True.
 START_FAILED=0 # 0 for False, 1 for True.
+START_WAIT_TIMEOUT=120 # Seconds.
 
 function tmux_session_exists() {
     if tmux list-sessions 2>&1 |grep ${TMUX_SESSION_NAME}; then
-        echo 1
+        echo 1 # True
     else
-        echo 0
+        echo 0 # False
     fi
 }
 
 function service_process_is_running() {
     if ps aux |grep ${SERVICE_PYTHON_FILE_NAME} |grep -v grep; then
-        echo 1
+        echo 1 # True
     else
-        echo 0
+        echo 0 # False
     fi
 }
 
 function service_is_alive() {
-    SERVICE_IP="127.0.0.1"
+    SERVICE_IP="0.0.0.0"
     SERVICE_PORT=$(grep listen_port ${CONF_DIR}/${CONF_FILE_NAME} |awk -F '=' '{print $2}' |awk '{print $1}')
-    RESULT_JSON=$(python3 ${INSTALL_DIR}/health_check_client.py --remote_host ${SERVICE_IP} --remote_port ${SERVICE_PORT} --check_tcp)
-    if echo ${RESULT_JSON} |grep status |grep -q UP; then
-        echo 1
+    IP_PORT="${SERVICE_IP}:${SERVICE_PORT}"
+#    RESULT_JSON=$(python3 ${INSTALL_DIR}/health_check_client.py --remote_host ${SERVICE_IP} --remote_port ${SERVICE_PORT} --check_tcp)
+#    if echo ${RESULT_JSON} |grep status |grep -q UP; then
+    if ss -tan |grep ${IP_PORT}; then
+        echo 1 # True
     else
-        echo 0
+        echo 0 # False
     fi
 }
 
@@ -92,7 +95,6 @@ function wait_loop() {
     _BEGIN_MSG="${2}"
     _WAITING_MSG="${3}"
     _STARTED_MSG="${4}"
-    START_WAIT_TIMEOUT=5 # Seconds.
     INNER_LOOP_INCREMENT=0.3 # Seconds.
     SCALE=1 # Number of decimal places to use for bc.
     START_WAIT_TIMEOUT_COUNTER=0
@@ -105,23 +107,23 @@ function wait_loop() {
         _ECHO_OPT="-ne"
         _ECHO_END_LINE="\r"
     fi
-    echo ${_ECHO_OPT} "  Startup checks: Checking ${SERVICE_DISPLAY_NAME} ${_BEGIN_MSG}${_ECHO_END_LINE}"
+    echo ${_ECHO_OPT} "  ${SERVICE_DISPLAY_NAME}: Checking ${_BEGIN_MSG}${_ECHO_END_LINE}"
     # Wait for the tmux session to start.
     while [[ "$(${_FUNC})" == "0" ]]; do
         WAIT_REMAINING=$(echo "scale=${SCALE}; ${START_WAIT_TIMEOUT} - ${START_WAIT_TIMEOUT_COUNTER}" | bc)
         erase_line
-        echo ${_ECHO_OPT} "  Startup checks: (WAIT TIMEOUT: ${WAIT_REMAINING}) Waiting for ${SERVICE_DISPLAY_NAME} ${_WAITING_MSG}${_ECHO_END_LINE}"
+        echo ${_ECHO_OPT} "  ${SERVICE_DISPLAY_NAME}: (WAIT TIMEOUT: ${WAIT_REMAINING}) Waiting for service ${_WAITING_MSG}${_ECHO_END_LINE}"
         sleep ${INNER_LOOP_INCREMENT}
         START_WAIT_TIMEOUT_COUNTER=$(echo "scale=${SCALE}; ${START_WAIT_TIMEOUT_COUNTER} + ${INNER_LOOP_INCREMENT}" | bc)
         if (( $(echo "${START_WAIT_TIMEOUT_COUNTER} > ${START_WAIT_TIMEOUT}" |bc -l) )); then
             erase_line
             if [[ "${IGNORE_SERVICE_START_FAILURES}" == "1" ]]; then
-                echo "  Startup checks: (FAIL, IGNORED) Timed out waiting for ${SERVICE_DISPLAY_NAME} ${_WAITING_MSG}"
+                echo "  ${SERVICE_DISPLAY_NAME}: (FAIL, IGNORED) Timed out waiting for service ${_WAITING_MSG}"
                 touch /tmp/${SERVICE_NAME}_start_failed
                 FAILED=1
                 break
             else
-                echo "  Startup checks: (FAIL) Timed out waiting for ${SERVICE_DISPLAY_NAME} ${_WAITING_MSG}"
+                echo "  ${SERVICE_DISPLAY_NAME}: (FAIL) Timed out waiting for service ${_WAITING_MSG}"
                 exit 1
             fi
         fi
@@ -129,7 +131,7 @@ function wait_loop() {
 
     if [[ "${FAILED}" == "0" ]]; then
         erase_line
-        echo "  Startup checks: (PASS) ${SERVICE_DISPLAY_NAME} ${_STARTED_MSG}"
+        echo "  ${SERVICE_DISPLAY_NAME}: (PASS) Service ${_STARTED_MSG}"
     fi
 }
 
@@ -249,6 +251,10 @@ while (( "$#" )); do
 
         -i|--ignore_service_start_failures)
             IGNORE_SERVICE_START_FAILURES=1
+            shift;;
+
+        -n|--no_wait_timeout)
+            START_WAIT_TIMEOUT=0
             shift;;
 
         *)
