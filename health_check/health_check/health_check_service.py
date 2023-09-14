@@ -1,13 +1,13 @@
 # pylint: disable=fixme
 """
 Simple, lightweight service to allow for TCP and HTTP health checks and additional custom checks.
-Primarily used for health checks of microservices inside containers but can be used for any health check on a server.
+Primarily used for health checks of microservices inside containers but can be used for bare metal servers too.
 
-TODO: Add to the returned JSON the name of the service that the health check is for.
 TODO: Implement logging to a file in addition to the stdout (default to /var/blah-blah-blah.log).
 TODO: Implement log rotation so log files do not fill the disk.
 TODO: Implement a cli flag to specify the log file name and path.
 TODO: Implement a "push" mode where the service will push the health check status to a remote server.
+TODO: Implement ability to configure log levels for remote logging server independently of local log levels.
 """
 
 import os
@@ -40,7 +40,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
     """
 
     # Constants.
-    _VERSION = "1.87"
+    _VERSION = "1.88"
     _current_year = date.today().year
     _copyright = f"(C) {_current_year}"
     _service_name = "Health Check Service"

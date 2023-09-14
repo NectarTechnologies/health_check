@@ -1,7 +1,7 @@
 # pylint: disable=fixme
 """
 Simple, lightweight client that calls the health_check_service API TCP and HTTP health checks.
-Primarily used for health checks of microservices inside containers but can be used for any health check on a server.
+Primarily used for health checks of microservices inside containers but can be used for bare metal servers too.
 
 TODO: Implement logging to a file in addition to the stdout (default to /var/blah-blah-blah.log).
 TODO: Implement a cli flag to specify the log file name and path.
@@ -37,7 +37,7 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
     """
 
     # Constants.
-    _VERSION = "1.78"
+    _VERSION = "1.79"
     _current_year = date.today().year
     _copyright = f"(C) {_current_year}"
     _service_name = "Health Check Client"
