@@ -30,10 +30,10 @@
 
 SCRIPT_PATH=$(cd "$(dirname "${0}")" && pwd)
 SCRIPT_NAME=$(basename "${0}")
-VERSION="1.2"
+VERSION="1.3"
 
 PROJECT_NAME="health_check"
-REPO_NAME="code_samples"
+REPO_NAME="health_check"
 SRC_CONTROL="github.com"
 ORG_NAME="NectarTechnologies"
 
@@ -126,8 +126,7 @@ fi
 
 show_banner
 
-SRC_REPO_PARENT_DIR="${WORKSPACE_BASE_DIR}/src/${SRC_CONTROL}/${ORG_NAME}/${REPO_NAME}"
-SRC_REPO_DIR="${SRC_REPO_PARENT_DIR}/${PROJECT_NAME}"
+SRC_REPO_DIR="${WORKSPACE_BASE_DIR}/src/${SRC_CONTROL}/${ORG_NAME}/${REPO_NAME}"
 PROJECT_ENV_FILE="${SRC_REPO_DIR}/.env"
 
 BASH_ENV_SCRIPT_PATH="${SRC_REPO_DIR}/setup"
