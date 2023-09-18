@@ -31,7 +31,7 @@
 
 # Each repo must conform to this format: <repo-service>/<org>/<repo-name>
 # Examples:
-#   github.com/github.com/NectarTechnologies/code_samples/health_check
+#   github.com/NectarTechnologies/code_samples/health_check
 PROJECT_FULL_NAME__HEALTH_CHECK="github.com/NectarTechnologies/code_samples/health_check"
 REPO_NAME__HEALTH_CHECK=$(echo "${PROJECT_FULL_NAME__HEALTH_CHECK}" |awk -F '/' '{print $3}')
 PROJECT_NAME__HEALTH_CHECK=$(echo "${PROJECT_FULL_NAME__HEALTH_CHECK}" |awk -F '/' '{print $NF}')
