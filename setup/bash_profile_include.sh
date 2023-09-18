@@ -31,9 +31,8 @@
 
 # Each repo must conform to this format: <repo-service>/<org>/<repo-name>
 # Examples:
-#   github.com/NectarTechnologies/code_samples/health_check
-PROJECT_FULL_NAME__HEALTH_CHECK="github.com/NectarTechnologies/code_samples/health_check"
-REPO_NAME__HEALTH_CHECK=$(echo "${PROJECT_FULL_NAME__HEALTH_CHECK}" |awk -F '/' '{print $3}')
+#   github.com/NectarTechnologies/health_check
+PROJECT_FULL_NAME__HEALTH_CHECK="github.com/NectarTechnologies/health_check"
 PROJECT_NAME__HEALTH_CHECK=$(echo "${PROJECT_FULL_NAME__HEALTH_CHECK}" |awk -F '/' '{print $NF}')
 
 # NOTE: This function name MUST always contain the "short nane" of the repo that is being worked on.
