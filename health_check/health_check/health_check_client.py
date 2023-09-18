@@ -1,7 +1,32 @@
 # pylint: disable=fixme
 """
-Simple, lightweight client that calls the health_check_service API TCP and HTTP health checks.
-Primarily used for health checks of microservices inside containers but can be used for bare metal servers too.
+MIT License
+
+Copyright (C) 2023 Nectar Technologies
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+################################################################################
+Description:
+  Simple, lightweight client that calls the health_check_service API TCP and HTTP health checks.
+  Primarily used for health checks of microservices inside containers but can be used for bare metal servers too.
 
 TODO: Implement logging to a file in addition to the stdout (default to /var/blah-blah-blah.log).
 TODO: Implement a cli flag to specify the log file name and path.
@@ -37,7 +62,7 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
     """
 
     # Constants.
-    _VERSION = "1.79"
+    _VERSION = "1.80"
     _current_year = date.today().year
     _copyright = f"(C) {_current_year}"
     _service_name = "Health Check Client"
