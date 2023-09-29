@@ -33,7 +33,7 @@
 
 SCRIPT_PATH=$(cd "$(dirname "${0}")" && pwd)
 SCRIPT_NAME=$(basename "${0}")
-VERSION="1.4"
+VERSION="1.6"
 
 UPTIME_DAYS=$(uptime |awk -F " up " '{split($0,a); print a[2]}' |awk -F "," '{split($0,b); print b[1]}')
 UPTIME_HR_MIN=$(uptime |awk -F " up " '{split($0,a); print a[2]}' |awk -F "," '{split($0,b); print b[2]}')
@@ -41,7 +41,7 @@ if [[ "${UPTIME_HR_MIN}" == *"users"* ]]; then
     UPTIME_HR_MIN=${UPTIME_DAYS}
     UPTIME_DAYS=""
 else
-     UPTIME_DAYS="${UPTIME_DAYS}, "
+     UPTIME_DAYS="${UPTIME_DAYS},"
 fi
 
 # TODO: Implement "uptime" stats.
