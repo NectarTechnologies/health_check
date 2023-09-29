@@ -33,12 +33,21 @@
 
 SCRIPT_PATH=$(cd "$(dirname "${0}")" && pwd)
 SCRIPT_NAME=$(basename "${0}")
-VERSION="1.3"
+VERSION="1.4"
+
+UPTIME_DAYS=$(uptime |awk -F " up " '{split($0,a); print a[2]}' |awk -F "," '{split($0,b); print b[1]}')
+UPTIME_HR_MIN=$(uptime |awk -F " up " '{split($0,a); print a[2]}' |awk -F "," '{split($0,b); print b[2]}')
+if [[ "${UPTIME_HR_MIN}" == *"users"* ]]; then
+    UPTIME_HR_MIN=${UPTIME_DAYS}
+    UPTIME_DAYS=""
+else
+     UPTIME_DAYS="${UPTIME_DAYS}, "
+fi
 
 # TODO: Implement "uptime" stats.
 echo "{" \
     "\"system_load\": \"$(uptime |awk -F ":" '{print $5}' |xargs)\"," \
-    "\"uptime\": \"\"," \
+    "\"uptime\": \"${UPTIME_DAYS}, ${UPTIME_HR_MIN}\"," \
     "\"cpu\": {" \
         "\"model\": \"$(cat /proc/cpuinfo |grep 'model name' |uniq |awk -F ":" '{print $2}' |xargs)\"," \
         "\"core_count\": \"$(nproc)\"," \
