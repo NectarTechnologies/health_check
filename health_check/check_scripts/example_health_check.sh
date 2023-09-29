@@ -47,7 +47,7 @@ fi
 # TODO: Implement "uptime" stats.
 echo "{" \
     "\"system_load\": \"$(uptime |awk -F ":" '{print $5}' |xargs)\"," \
-    "\"uptime\": \"${UPTIME_DAYS}, ${UPTIME_HR_MIN}\"," \
+    "\"uptime\": \"${UPTIME_DAYS}${UPTIME_HR_MIN}\"," \
     "\"cpu\": {" \
         "\"model\": \"$(cat /proc/cpuinfo |grep 'model name' |uniq |awk -F ":" '{print $2}' |xargs)\"," \
         "\"core_count\": \"$(nproc)\"," \
