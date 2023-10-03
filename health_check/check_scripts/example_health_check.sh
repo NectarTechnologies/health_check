@@ -33,7 +33,7 @@
 
 SCRIPT_PATH=$(cd "$(dirname "${0}")" && pwd)
 SCRIPT_NAME=$(basename "${0}")
-VERSION="1.8"
+VERSION="1.9"
 
 function what_os() {
     if [[ "$(uname)" == "Darwin" ]]; then
@@ -88,7 +88,7 @@ else
     "\"system_load\": \"${SYSTEM_LOAD}\"," \
     "\"uptime\": \"${UPTIME_DAYS}${UPTIME_HR_MIN}\"," \
     "\"cpu\": {" \
-        "\"model\": \"${CPU_MODEL}}\"," \
+        "\"model\": \"${CPU_MODEL}\"," \
         "\"core_count\": \"${CPU_CORES}\"," \
         "\"usage_percent\": {" \
           "\"idle\": \"${CPU_IDLE}\"," \
