@@ -65,7 +65,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
     """
 
     # Constants.
-    _VERSION = "1.90"
+    _VERSION = "1.91"
     _current_year = date.today().year
     _copyright = f"(C) {_current_year}"
     _service_name = "Health Check Service"
@@ -230,12 +230,12 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
             if config_file is not None:
                 self.config_file = os.path.abspath(config_file)
             else:
-                _config_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), self.CONFIG_FILE_NAME)
-                if os.path.isfile(_config_file):
-                    self.config_file = _config_file
+                if os.path.isfile(os.path.abspath(self.DEFAULT_CONFIG_FILE)):
+                    self.config_file = os.path.abspath(self.DEFAULT_CONFIG_FILE)
                 else:
-                    if os.path.isfile(os.path.abspath(self.DEFAULT_CONFIG_FILE)):
-                        self.config_file = os.path.abspath(self.DEFAULT_CONFIG_FILE)
+                    _config_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), self.CONFIG_FILE_NAME)
+                    if os.path.isfile(_config_file):
+                        self.config_file = _config_file
 
         # pylint: disable=too-many-nested-blocks,too-many-boolean-expressions
         if self.config_file and os.path.isfile(self.config_file) and os.access(self.config_file, os.R_OK):
