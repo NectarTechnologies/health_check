@@ -65,7 +65,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
     """
 
     # Constants.
-    _VERSION = "1.89"
+    _VERSION = "1.90"
     _current_year = date.today().year
     _copyright = f"(C) {_current_year}"
     _service_name = "Health Check Service"
@@ -87,9 +87,19 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
     log_level_default = LogLevel.INFO  # default log level
     options = None  # command line options
     sock = None  # socket
+
     live_check_script = None  # path to live check script
+    live_check_script_default = os.path.join(INSTALL_DIR, "check_scripts", "live_check.sh")
+    live_check_script_example = os.path.join(INSTALL_DIR, "check_scripts", "example_live_check.sh")
+
     ready_check_script = None  # path to ready check script
+    ready_check_script_default = os.path.join(INSTALL_DIR, "check_scripts", "ready_check.sh")
+    ready_check_script_example = os.path.join(INSTALL_DIR, "check_scripts", "example_ready_check.sh")
+
     health_check_script = None  # path to health check script
+    health_check_script_default = os.path.join(INSTALL_DIR, "check_scripts", "health_check.sh")
+    health_check_script_example = os.path.join(INSTALL_DIR, "check_scripts", "example_health_check.sh")
+
     include_data_details = None  # include data details in the health check script responses
     config_file = None
     config = None
@@ -289,9 +299,24 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
                 self.live_check_script = live_check_script
         if self.live_check_script is not None:
             if not os.path.isfile(os.path.abspath(self.live_check_script)):
-                self._log(msg=f'Specified LIVE check script "{self.live_check_script}" does not exist.',
-                          level=LogLevel.ERROR)
-                sys.exit(1)
+                self._log(msg=f'Specified LIVE check script does not exist: {self.live_check_script}',
+                          level=LogLevel.WARNING)
+                self._log(msg=f'Checking for: {self.live_check_script_default}')
+                if os.path.isfile(self.live_check_script_default):
+                    self._log(msg=f'Found LIVE check script: "{self.live_check_script_default}"')
+                    self.live_check_script = self.live_check_script_default
+                else:
+                    self._log(msg=f'Default LIVE check script does not exist: {self.live_check_script_default}',
+                              level=LogLevel.WARNING)
+                    self._log(msg=f'Checking for: {self.ready_check_script_example}')
+                    if os.path.isfile(self.ready_check_script_example):
+                        self._log(msg=f'Found LIVE check script: "{self.ready_check_script_example}"')
+                        self.live_check_script = self.ready_check_script_example
+                    else:
+                        self._log(msg=f'Example LIVE check script does not exist: {self.live_check_script_example}',
+                                  level=LogLevel.WARNING)
+                        self._log(msg='No READY check script could be found. Cannot continue.', level=LogLevel.ERROR)
+                        sys.exit(1)
 
         if self.options.ready_check_script is not None:
             self.ready_check_script = self.options.ready_check_script[0]
@@ -300,9 +325,24 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
                 self.ready_check_script = ready_check_script
         if self.ready_check_script is not None:
             if not os.path.isfile(os.path.abspath(self.ready_check_script)):
-                self._log(msg=f'Specified READY check script "{self.ready_check_script}" does not exist.',
-                          level=LogLevel.ERROR)
-                sys.exit(1)
+                self._log(msg=f'Specified READY check script does not exist: {self.ready_check_script}',
+                          level=LogLevel.WARNING)
+                self._log(msg=f'Checking for: {self.ready_check_script_default}')
+                if os.path.isfile(self.ready_check_script_default):
+                    self._log(msg=f'Found READY check script: "{self.ready_check_script_default}"')
+                    self.ready_check_script = self.ready_check_script_default
+                else:
+                    self._log(msg=f'Default READY check script does not exist: {self.ready_check_script_default}',
+                              level=LogLevel.WARNING)
+                    self._log(msg=f'Checking for: {self.ready_check_script_example}')
+                    if os.path.isfile(self.ready_check_script_example):
+                        self._log(msg=f'Found READY check script: "{self.ready_check_script_example}"')
+                        self.ready_check_script = self.ready_check_script_example
+                    else:
+                        self._log(msg=f'Example READY check script does not exist: {self.ready_check_script_example}',
+                                  level=LogLevel.WARNING)
+                        self._log(msg='No READY check script could be found. Cannot continue.', level=LogLevel.ERROR)
+                        sys.exit(1)
 
         if self.options.health_check_script is not None:
             self.health_check_script = self.options.health_check_script[0]
@@ -311,9 +351,24 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
                 self.health_check_script = health_check_script
         if self.health_check_script is not None:
             if not os.path.isfile(os.path.abspath(self.health_check_script)):
-                self._log(msg=f'Specified HEALTH check script "{self.health_check_script}" does not exist.',
-                          level=LogLevel.ERROR)
-                sys.exit(1)
+                self._log(msg=f'Specified HEALTH check script does not exist: {self.health_check_script}',
+                          level=LogLevel.WARNING)
+                self._log(msg=f'Checking for: {self.health_check_script_default}')
+                if os.path.isfile(self.health_check_script_default):
+                    self._log(msg=f'Found HEALTH check script: "{self.health_check_script_default}"')
+                    self.health_check_script = self.health_check_script_default
+                else:
+                    self._log(msg=f'Default HEALTH check script does not exist: {self.health_check_script_default}',
+                              level=LogLevel.WARNING)
+                    self._log(msg=f'Checking for: {self.health_check_script_example}')
+                    if os.path.isfile(self.health_check_script_example):
+                        self._log(msg=f'Found HEALTH check script: "{self.health_check_script_example}"')
+                        self.health_check_script = self.health_check_script_example
+                    else:
+                        self._log(msg=f'Example HEALTH check script does not exist: {self.health_check_script_example}',
+                                  level=LogLevel.WARNING)
+                        self._log(msg='No HEALTH check script could be found. Cannot continue.', level=LogLevel.ERROR)
+                        sys.exit(1)
 
         if self.options.include_data_details is not None:
             self.include_data_details = self.options.include_data_details
@@ -548,11 +603,9 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
         http_response_msg = b"OK"
         return hc_version, http_response_code, http_response_msg
 
-    def do_tcp_check(self, include_data_details=False):
+    def do_tcp_check(self):
         """
         Performs a TCP check. Returns a status of "UP" if the TCP ports are open or "DOWN" if the TCP ports are closed.
-
-        :param include_data_details: (bool) If True, then include data details in the health check script responses.
 
         :return: (3-tuple of HealthCheckTcp, bytearray, bytearray) The TCP check object, http response code,
             and http response message.
@@ -777,7 +830,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
                                 http_body = {**http_body, **check_obj.get_status_dict()}
 
                             elif data.startswith(f"GET {HC.get_tcp_endpoint()}"):
-                                check_obj, http_response_code, http_response_msg = self.do_tcp_check(_details)
+                                check_obj, http_response_code, http_response_msg = self.do_tcp_check()
                                 # Merge the health check data with the default http_body dict.
                                 http_body = {**http_body, **check_obj.get_status_dict()}
 

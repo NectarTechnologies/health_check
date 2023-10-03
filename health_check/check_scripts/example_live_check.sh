@@ -33,9 +33,17 @@
 
 SCRIPT_PATH=$(cd "$(dirname "${0}")" && pwd)
 SCRIPT_NAME=$(basename "${0}")
-VERSION="1.2"
+VERSION="1.4"
 
 MAIN_SERVICE_NAME="Foo Bar Service"
+
+function what_os() {
+    if [[ "$(uname)" == "Darwin" ]]; then
+        echo "mac"
+    else
+        echo "linux"
+    fi
+}
 
 function process_is_running() {
     PROCESS_1="${1}"
@@ -69,10 +77,17 @@ function output_json() {
 
 # EXAMPLE 1:
 #   Check if a single process is running, in this case the SSH daemon.
-PROCESS_1="/usr/sbin/sshd"
-if [[ "$(process_is_running ${PROCESS_1})" == "0" ]]; then
-    output_json "Service not running: ${PROCESS_1}"
-    exit 1
+if [[ "$(what_os)" == "mac" ]]; then
+    if ! netstat -anl|grep LISTEN|grep -q "*.22"; then
+        output_json "Service not running: SSH"
+        exit 1
+    fi
+else
+    PROCESS_1="/usr/sbin/sshd"
+    if [[ "$(process_is_running ${PROCESS_1})" == "0" ]]; then
+        output_json "Service not running: ${PROCESS_1}"
+        exit 1
+    fi
 fi
 
 # EXAMPLE 2:

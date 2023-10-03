@@ -33,28 +33,69 @@
 
 SCRIPT_PATH=$(cd "$(dirname "${0}")" && pwd)
 SCRIPT_NAME=$(basename "${0}")
-VERSION="1.6"
+VERSION="1.8"
+
+function what_os() {
+    if [[ "$(uname)" == "Darwin" ]]; then
+        echo "mac"
+    else
+        echo "linux"
+    fi
+}
 
 UPTIME_DAYS=$(uptime |awk -F " up " '{split($0,a); print a[2]}' |awk -F "," '{split($0,b); print b[1]}')
 UPTIME_HR_MIN=$(uptime |awk -F " up " '{split($0,a); print a[2]}' |awk -F "," '{split($0,b); print b[2]}')
 if [[ "${UPTIME_HR_MIN}" == *"users"* ]]; then
     UPTIME_HR_MIN=${UPTIME_DAYS}
     UPTIME_DAYS=""
+    SYSTEM_LOAD=$(uptime |awk -F ":" '{print $4}' |xargs)
 else
      UPTIME_DAYS="${UPTIME_DAYS},"
+     SYSTEM_LOAD=$(uptime |awk -F ":" '{print $5}' |xargs)
 fi
 
-# TODO: Implement "uptime" stats.
-echo "{" \
-    "\"system_load\": \"$(uptime |awk -F ":" '{print $5}' |xargs)\"," \
+if [[ "$(what_os)" == "mac" ]]; then
+    CPU_NAME=$(system_profiler SPHardwareDataType |grep "Processor Name" |awk -F ": " '{print $2}')
+    CPU_HZ=$(system_profiler SPHardwareDataType |grep "Processor Speed" |awk -F ": " '{print $2}')
+    CPU_MODEL="${CPU_NAME} @ ${CPU_HZ}"
+    CPU_CORES=$(system_profiler SPHardwareDataType |grep "Total Number of Cores" |awk -F ": " '{print $2}')
+    CPU_IDLE=""
+    CPU_IOWAIT=""
+    CPU_USER=""
+    CPU_SYSTEM=$(top -R -F -n 0 -l 2 -s 0 | grep -E "^CPU" | tail -1 | awk '{ print $3 + $5"%" }' |awk -F "%" '{print $1}')
+
+    # TODO: Add that same CPU stats that are being collected for Linux.
+    echo "{" \
+    "\"system_load\": \"${SYSTEM_LOAD}\"," \
     "\"uptime\": \"${UPTIME_DAYS}${UPTIME_HR_MIN}\"," \
     "\"cpu\": {" \
-        "\"model\": \"$(cat /proc/cpuinfo |grep 'model name' |uniq |awk -F ":" '{print $2}' |xargs)\"," \
-        "\"core_count\": \"$(nproc)\"," \
-        "\"idle_percent\": \"$(mpstat |grep all |awk '{print $12}')\"," \
-        "\"iowait_percent\": \"$(mpstat |grep all |awk '{print $6}')\"," \
-        "\"user_percent\": \"$(mpstat |grep all |awk '{print $3}')\"," \
-        "\"system_percent\": \"$(mpstat |grep all |awk '{print $5}')\"" \
+        "\"model\": \"${CPU_MODEL}}\"," \
+        "\"core_count\": \"${CPU_CORES}\"," \
+        "\"usage_percent\": {" \
+          "\"system\": \"${CPU_SYSTEM}\"" \
+        "}" \
+    "}" \
+"}"
+
+else
+    CPU_MODEL=$(cat /proc/cpuinfo |grep 'model name' |uniq |awk -F ":" '{print $2}' |xargs)
+    CPU_CORES=$(nproc)
+    CPU_IDLE=$(mpstat |grep all |awk '{print $12}')
+    CPU_IOWAIT=$(mpstat |grep all |awk '{print $6}')
+    CPU_USER=$(mpstat |grep all |awk '{print $3}')
+    CPU_SYSTEM=$(mpstat |grep all |awk '{print $5}')
+    echo "{" \
+    "\"system_load\": \"${SYSTEM_LOAD}\"," \
+    "\"uptime\": \"${UPTIME_DAYS}${UPTIME_HR_MIN}\"," \
+    "\"cpu\": {" \
+        "\"model\": \"${CPU_MODEL}}\"," \
+        "\"core_count\": \"${CPU_CORES}\"," \
+        "\"usage_percent\": {" \
+          "\"idle\": \"${CPU_IDLE}\"," \
+          "\"iowait\": \"${CPU_IOWAIT}\"," \
+          "\"user\": \"${CPU_USER}\"," \
+          "\"system\": \"${CPU_SYSTEM}\"" \
+        "}" \
     "}," \
     "\"memory\": {" \
         "\"total_mb\": \"$(free -m |grep Mem |awk '{print $2}')\"," \
@@ -65,11 +106,11 @@ echo "{" \
         "\"free\": \"$(df -h / |awk '{print $4}' |grep -vE 'Size|Used|Avail')\"" \
     "}" \
 "}"
+fi
 
 # TODO: Add additional app-specific data / stats.
 
 # TODO: Add any checks what would cause this service to be "unhealthy".
-#       In the case of "unhealthy" also return a non-zero exit code.
 
 # TODO: Additional ideas of additional app-specific data to include:
 # - Average response time
@@ -86,5 +127,7 @@ echo "{" \
 # - Number of sockets
 # - Number of connections
 # - etc.
+
+# TODO: In the case of "unhealthy" also return a non-zero exit code.
 
 exit 0

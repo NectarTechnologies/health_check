@@ -62,7 +62,7 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
     """
 
     # Constants.
-    _VERSION = "1.80"
+    _VERSION = "1.81"
     _current_year = date.today().year
     _copyright = f"(C) {_current_year}"
     _service_name = "Health Check Client"
