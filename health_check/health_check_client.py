@@ -62,7 +62,7 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
     """
 
     # Constants.
-    _VERSION = "1.81"
+    _VERSION = "1.82"
     _current_year = date.today().year
     _copyright = f"(C) {_current_year}"
     _service_name = "Health Check Client"
@@ -241,7 +241,7 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
                             default=False, help='Output all the config parameters upon startup.\n')
 
         parser.add_argument('--no_output_only_exit_code', dest='no_output_only_exit_code', action="store_true",
-                            default=None, help='If False, then only return the return exit code and no other output.\n')
+                            default=None, help='Return the return exit code only and no other output.\n')
 
         try:
             self.options, _ = parser.parse_known_args(sys.argv[:])
