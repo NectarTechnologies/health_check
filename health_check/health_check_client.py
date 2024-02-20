@@ -62,7 +62,7 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
     """
 
     # Constants.
-    _VERSION = "1.82"
+    _VERSION = "1.83"
     _current_year = date.today().year
     _copyright = f"(C) {_current_year}"
     _service_name = "Health Check Client"
@@ -73,8 +73,14 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
 
     # Variables that can be passed into __init__().
     remote_host = None
+    remote_host_value_source = "Config File"  # Default source if no value is passed in.
+
     remote_port = 5757
+    remote_port_value_source = "Config File"  # Default source if no value is passed in.
+
     retry_count = 5  # number of times to retry starting the service
+    retry_count_value_source = "Config File"  # Default source if no value is passed in.
+
     check_icmp = False  # If True, then check that the server responds to an ICMP echo request.
     check_tcp = False  # If True, then check that the TCP port of the server can be connected to.
     check_live = False  # If True, then check that the HTTP endpoint "/live" returns "LIVE".
@@ -86,15 +92,27 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
     # Internal variables.
     server_ip_addr = None
     remote_server = None  # A tuple of (remote_host, remote_port) where remote_host can be a hostname or IP address.
+
     retry_wait_time = 3  # seconds
+    retry_wait_time_value_source = "Config File"  # Default source if no value is passed in.
+
     _log_level_name_max_length = 0  # length of longest log level name
+
     log_level_default = LogLevel.INFO  # default log level
+    log_level_default_value_source = "Config File"  # Default source if no value is passed in.
+
     options = None  # command line options
     sock = None  # socket
     _current_health_check_type = HCEnum.TCP  # Default to TCP health check.
+
     include_data_details = None  # include data details in the health check script responses
+    include_data_details_value_source = "Config File"  # Default source if no value is passed in.
+
     config_file = DEFAULT_CONFIG_FILE
+
     show_config_on_startup = False  # Outputs all the config parameters upon startup.
+    show_config_on_startup_value_source = "Config File"  # Default source if no value is passed in.
+
     no_output_only_exit_code = False  # If False, then only return the return exit code and no other output.
 
     retryable_errors = (
@@ -305,18 +323,21 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
 
         if self.options.remote_host is not None:
             self.remote_host = self.options.remote_host[0]
+            self.remote_host_value_source = "Command Line"
         else:
             if remote_host is not None:
                 self.remote_host = remote_host
 
         if self.options.remote_port is not None:
             self.remote_port = int(self.options.remote_port[0])
+            self.remote_port_value_source = "Command Line"
         else:
             if remote_port is not None:
                 self.remote_port = int(remote_port)
 
         if self.options.retry_count is not None:
             self.retry_count = int(self.options.retry_count[0])
+            self.retry_count_value_source = "Command Line"
         else:
             if retry_count is not None:
                 self.retry_count = int(retry_count)
@@ -365,12 +386,14 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
 
         if self.options.include_data_details is not None:
             self.include_data_details = self.options.include_data_details
+            self.include_data_details_value_source = "Command Line"
         else:
             if include_data_details is not None:
                 self.include_data_details = bool(include_data_details)
 
         if self.options.show_config_on_startup is not None:
             self.show_config_on_startup = self.options.show_config_on_startup
+            self.show_config_on_startup_value_source = "Command Line"
         else:
             if show_config_on_startup is not None:
                 self.show_config_on_startup = bool(show_config_on_startup)
@@ -449,15 +472,36 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
         """
         Shows the config parameters.
         """
+        padding = 22
         self._log(msg="Config Parameters:")
-        self._log(msg=f"    config_file: {self.config_file}")
-        self._log(msg=f"    remote_host: {self.remote_host}")
-        self._log(msg=f"    remote_port: {self.remote_port}")
-        self._log(msg=f"    retry_count: {self.retry_count}")
-        self._log(msg=f"    retry_wait_time: {self.retry_wait_time}")
-        self._log(msg=f"    log_level: {self.log_level_default.name}")
-        self._log(msg=f"    include_data_details: {self.include_data_details}")
-        self._log(msg=f"    show_config_on_startup: {self.show_config_on_startup}")
+        self._log(msg=f"{'config_file':>{padding}}: {self.config_file}")
+
+        self._log(msg=f"{'remote_host':>{padding}}: {self.remote_host:>{padding}}"
+                      f",    Source: {self.remote_host_value_source}")
+
+        self._log(msg=f"{'remote_port':>{padding}}: {self.remote_port:>{padding}}"
+                      f",    Source: {self.remote_port_value_source}")
+
+        self._log(msg=f"{'retry_count':>{padding}}: {self.retry_count:>{padding}}"
+                      f",    Source: {self.retry_count_value_source}")
+
+        self._log(msg=f"{'retry_wait_time':>{padding}}: {self.retry_wait_time:>{padding}}"
+                      f",    Source: {self.retry_wait_time_value_source}")
+
+        self._log(msg=f"{'log_level':>{padding}}: {self.log_level_default.name:>{padding}}"
+                      f",    Source: {self.log_level_default_value_source}")
+
+        _tmp_str = "False"
+        if self.include_data_details:
+            _tmp_str = "True"
+        self._log(msg=f"{'include_data_details':>{padding}}: {_tmp_str:>{padding}}"
+                      f",    Source: {self.include_data_details_value_source}")
+
+        _tmp_str = "False"
+        if self.show_config_on_startup:
+            _tmp_str = "True"
+        self._log(msg=f"{'show_config_on_startup':>{padding}}: {_tmp_str:>{padding}}"
+                      f",    Source: {self.show_config_on_startup_value_source}")
 
     @staticmethod
     def find_len_of_longest_log_level_name():
@@ -582,7 +626,7 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
             try:
                 # Connect to the server.
                 self.sock.connect(self.remote_server)
-            except Exception as exc:
+            except Exception as exc:  # pylint: disable=broad-except
                 response_msg["status"] = "DOWN"
                 if "Connection refused" in str(exc):
                     response_msg["msg"] = f'Connection refused to "{self.remote_server}"'
