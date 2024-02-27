@@ -43,8 +43,8 @@ class HealthCheckTypesEnum(Enum):  # pylint: disable=too-few-public-methods
     Parameter 5: (str) The status to return if the health check is not successful.
     Parameter 6: (str) The status to return if the health check is "degraded".
     """
-    ICMP = 0, 'ICMP', 'ICMP', 'UP', 'DOWN', 'NO_DEGRADED_STATUS'
-    TCP = 1, '/tcp', 'TCP', 'UP', 'DOWN', "DEGRADED"
+    ICMP = 0, 'ICMP', 'ICMP', 'RESPONDING', 'NOT_RESPONDING', 'NO_DEGRADED_STATUS'
+    TCP = 1, '/tcp', 'TCP', 'OPEN', 'CLOSED', "DEGRADED"
     HTTP_LIVE = 2, '/live', 'LIVE', 'LIVE', 'NOT_LIVE', "DEGRADED"
     HTTP_READY = 3, '/ready', 'READY', 'READY', 'NOT_READY', "DEGRADED"
     HTTP_HEALTH = 4, '/health', 'HEALTH', 'HEALTHY', 'NOT_HEALTHY', "DEGRADED"

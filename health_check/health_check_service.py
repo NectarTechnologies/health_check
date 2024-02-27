@@ -65,7 +65,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
     """
 
     # Constants.
-    _VERSION = "1.91"
+    _VERSION = "1.92"
     _current_year = date.today().year
     _copyright = f"(C) {_current_year}"
     _service_name = "Health Check Service"
@@ -605,7 +605,8 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
 
     def do_tcp_check(self):
         """
-        Performs a TCP check. Returns a status of "UP" if the TCP ports are open or "DOWN" if the TCP ports are closed.
+        Performs a TCP check. Returns a status of "OPEN" if the TCP ports are open or "CLOSED" if the TCP ports are
+        closed.
 
         :return: (3-tuple of HealthCheckTcp, bytearray, bytearray) The TCP check object, http response code,
             and http response message.
@@ -759,7 +760,7 @@ class HealthCheckService:  # pylint: disable=too-many-instance-attributes
 
                 if data is None or data == b'':
                     # Handle the request as a TCP only with no payload.
-                    self._log(msg='Status: "UP" (TCP)', level=LogLevel.INFO)
+                    self._log(msg='Status: "OPEN" (TCP)', level=LogLevel.INFO)
                 else:
                     # How many data bytes do we have?
                     if len(data) < 4:

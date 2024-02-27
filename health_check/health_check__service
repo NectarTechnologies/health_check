@@ -78,7 +78,7 @@ function service_is_alive() {
     SERVICE_PORT=$(grep listen_port ${CONF_DIR}/${CONF_FILE_NAME} |awk -F '=' '{print $2}' |awk '{print $1}')
     IP_PORT="${SERVICE_IP}:${SERVICE_PORT}"
 #    RESULT_JSON=$(python3 ${INSTALL_DIR}/health_check_client.py --remote_host ${SERVICE_IP} --remote_port ${SERVICE_PORT} --check_tcp)
-#    if echo ${RESULT_JSON} |grep status |grep -q UP; then
+#    if echo ${RESULT_JSON} |grep status |grep -q OPEN; then
     if ss -tan |grep ${IP_PORT}; then
         echo 1 # True
     else

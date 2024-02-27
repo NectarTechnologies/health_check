@@ -62,7 +62,7 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
     """
 
     # Constants.
-    _VERSION = "1.83"
+    _VERSION = "1.84"
     _current_year = date.today().year
     _copyright = f"(C) {_current_year}"
     _service_name = "Health Check Client"
@@ -627,7 +627,7 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
                 # Connect to the server.
                 self.sock.connect(self.remote_server)
             except Exception as exc:  # pylint: disable=broad-except
-                response_msg["status"] = "DOWN"
+                response_msg["status"] = "CLOSED"
                 if "Connection refused" in str(exc):
                     response_msg["msg"] = f'Connection refused to "{self.remote_server}"'
                 else:
@@ -695,7 +695,7 @@ class HealthCheckClient:  # pylint: disable=too-many-instance-attributes
 
             # If we do not receive any data.
             if not http_response_raw:
-                response_msg["status"] = "DOWN"
+                response_msg["status"] = "CLOSED"
                 response_msg["msg"] = "No data received."
                 response_msg["last_check_time"] = HealthCheckTypes.get_timestamp()
                 response_msg["last_check_time_epoch"] =  time.time()

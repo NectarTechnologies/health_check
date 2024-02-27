@@ -28,9 +28,9 @@
 #   Adds bash_profile_include.sh to .bashrc (or .bash_profile)
 #   Adds aliases to .bashrc (or .bash_profile)
 
-SCRIPT_PATH=$(cd "$(dirname "${0}")" && pwd)
 SCRIPT_NAME=$(basename "${0}")
-VERSION="1.3"
+SCRIPT_PATH=$(cd "$(dirname "${0}")" && pwd)
+VERSION="1.4"
 
 PROJECT_NAME="health_check"
 REPO_NAME="health_check"
